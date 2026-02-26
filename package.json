@@ -1,0 +1,18 @@
+{
+  "name": "cx-digital-backend",
+  "version": "1.0.0",
+  "description": "CX Digital Order-to-Contact Dashboard Backend",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js"
+  },
+  "dependencies": {
+    "axios": "^1.6.5",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "node-cron": "^3.0.2",
+    "pg": "^8.11.3"
+  }
+}
