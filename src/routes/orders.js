@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const database = require('../services/database.service');
+//const database = require('../services/database.service');
 
 // GET /api/orders?store_id=NL&date_from=2026-02-26&date_to=2026-02-26&group_by=hour
 router.get('/', async (req, res) => {

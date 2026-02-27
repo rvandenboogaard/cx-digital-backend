@@ -10,27 +10,25 @@ app.use(cors());
 app.use(express.json());
 
 // Import routes
-const dashboardRoutes = require('./routes/dashboard');
 const ordersRoutes = require('./routes/orders');
-const { syncDixaAndShopifyData } = require('./jobs/hourly-sync');
+//const { syncDixaAndShopifyData } = require('./jobs/hourly-sync');
 
 // Routes
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/orders', ordersRoutes);
 
 // Manual sync endpoint (for testing)
-app.post('/api/admin/sync', async (req, res) => {
-  try {
-    const result = await syncDixaAndShopifyData();
-    res.json({ success: true, result });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
+// app.post('/api/admin/sync', async (req, res) => {
+// try {
+//    const result = await syncDixaAndShopifyData();
+//    res.json({ success: true, result });
+//  } catch (error) {
+//    res.status(500).json({ error: error.message });
+//  }
+//  });
 
 // Start server
 app.listen(PORT, () => {
