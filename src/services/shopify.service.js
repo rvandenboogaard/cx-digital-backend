@@ -62,6 +62,7 @@ async function getMockOrders(filters = {}) {
   // Generate mock data for testing
   const mockOrders = [];
   const baseDate = new Date(dateFrom);
+  const mockTags = ['SWB', 'SWA', 'SWS', 'BSW', 'CSW']; // Market tags
 
   for (let i = 0; i < 50; i++) {
     const orderDate = new Date(baseDate.getTime() + i * 3600000); // Every hour
@@ -70,6 +71,7 @@ async function getMockOrders(filters = {}) {
       order_date: orderDate.toISOString(),
       order_hour: truncateToHour(orderDate.toISOString()),
       product_count: Math.floor(Math.random() * 5) + 1,
+      tags: [mockTags[i % mockTags.length]], // Add market tags
       source: 'shopify',
     });
   }
@@ -77,7 +79,7 @@ async function getMockOrders(filters = {}) {
   return mockOrders;
 }
 
-module.exports.exports = {
+module.exports = {
   getOrders,
   getMockOrders,
   truncateToHour,
