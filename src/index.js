@@ -11,6 +11,8 @@ app.use(express.json());
 
 // Import routes
 const ordersRoutes = require('./routes/orders');
+const conversationsRoutes = require('./routes/conversations');
+const otcRoutes = require('./routes/otc');
 //const { syncDixaAndShopifyData } = require('./jobs/hourly-sync');
 
 // Routes
@@ -19,6 +21,8 @@ app.get('/health', (req, res) => {
 });
 
 app.use('/api/orders', ordersRoutes);
+app.use('/api/conversations', conversationsRoutes);
+app.use('/api/otc', otcRoutes);
 
 // Manual sync endpoint (for testing)
 // app.post('/api/admin/sync', async (req, res) => {
