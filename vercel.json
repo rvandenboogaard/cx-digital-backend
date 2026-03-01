@@ -1,5 +1,21 @@
 {
   "version": 2,
-  "builds": [{"src": "src/index.js", "use": "@vercel/node"}],
-  "routes": [{"src": "/(.*)", "dest": "src/index.js"}]
+  "builds": [
+    {
+      "src": "src/index.js",
+      "use": "@vercel/node"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "src/index.js"
+    }
+  ],
+  "env": {
+    "SHOPIFY_API_KEY": "@shopify_api_key",
+    "SHOPIFY_API_PASSWORD": "@shopify_api_password",
+    "SHOPIFY_SHOP_NAME": "@shopify_shop_name",
+    "DIXA_API_TOKEN": "@dixa_api_token"
+  }
 }
