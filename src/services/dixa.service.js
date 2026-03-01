@@ -3,7 +3,7 @@ require('dotenv').config();
 
 // Dixa configuration from environment variables
 const config = {
-  apiUrl: process.env.DIXA_API_URL || 'https://api.dixa.io/v1',
+  apiUrl: process.env.DIXA_API_URL || 'https://dev.dixa.io/v1',
   apiKey: process.env.DIXA_API_KEY || process.env.DIXA_API_TOKEN, // Try both
 };
 
