@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const shopifyService = require('../services/shopify.service');
-const shopifyGraphQLHybridService = require('../services/shopify-graphql-hybrid.service');
+const shopifyRESTService = require('../services/shopify-rest.service');
 
 router.get('/', async (req, res) => {
   try {
@@ -21,11 +21,17 @@ router.get('/', async (req, res) => {
       source = 'mock';
     } else {
       try {
-        orders = await shopifyGraphQLHybridService.getOrdersViaGraphQLHybrid(filters);
-        source = 'shopify-live';
-        console.log(`✅ Loaded ${orders.length} LIVE orders from Shopify`);
-      } catch (graphqlError) {
-        console.warn('GraphQL failed, using mock data:', graphqlError.message);
+        orders = await shopifyRESTService.getOrdersViaREST(filters);
+        source = 'shopify-rest-live';
+        if (orders.length > 0) {
+          console.log(`✅ Loaded ${orders.length} LIVE orders from Shopify REST`);
+        } else {
+          console.warn('No orders found via REST, trying mock');
+          orders = await shopifyService.getMockOrders(filters);
+          source = 'mock-fallback';
+        }
+      } catch (restError) {
+        console.warn('REST API failed, using mock data:', restError.message);
         orders = await shopifyService.getMockOrders(filters);
         source = 'mock-fallback';
       }
