@@ -4,12 +4,12 @@ require('dotenv').config();
 // Dixa configuration from environment variables
 const config = {
   apiUrl: process.env.DIXA_API_URL || 'https://api.dixa.io/v1',
-  apiToken: process.env.DIXA_API_TOKEN,
+  apiKey: process.env.DIXA_API_KEY || process.env.DIXA_API_TOKEN, // Try both
 };
 
 // Validate required env vars on startup
-if (!config.apiToken) {
-  console.warn('⚠️ Dixa API token missing - DIXA_API_TOKEN not set');
+if (!config.apiKey) {
+  console.warn('⚠️ Dixa API credentials missing - DIXA_API_KEY or DIXA_API_TOKEN not set');
 }
 
 async function getConversations(filters = {}) {
@@ -31,8 +31,10 @@ async function getConversations(filters = {}) {
     const response = await axios.get(url, {
       params,
       headers: {
-        'Authorization': `Bearer ${config.apiToken}`,
+        'Authorization': `Bearer ${config.apiKey}`,
+        'Content-Type': 'application/json',
       },
+      timeout: 10000,
     });
 
     const conversations = response.data.conversations || [];
