@@ -59,8 +59,9 @@ async function getConversations(filters = {}) {
       source: 'dixa',
     }));
   } catch (error) {
-    console.error(`❌ Dixa API Error: ${error.message}`);
-    throw error;
+    console.warn(`⚠️ Dixa API Error (${error.status || error.code}): ${error.message}`);
+    console.log('📦 Falling back to mock conversations');
+    return getMockConversations(filters);
   }
 }
 
