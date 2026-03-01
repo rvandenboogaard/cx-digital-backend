@@ -1,5 +1,6 @@
 const axios = require('axios');
 require('dotenv').config();
+const countryMapper = require('./country-mapper.service');
 
 const config = {
   apiKey: process.env.SHOPIFY_API_KEY,
@@ -44,16 +45,24 @@ async function getOrdersViaREST(filters = {}) {
     const orders = response.data.orders || [];
     console.log(`✅ Got ${orders.length} orders from Shopify REST`);
 
-    return orders.map((order) => ({
-      shopify_order_id: order.id,
-      order_date: order.created_at,
-      order_hour: truncateToHour(order.created_at),
-      customer_email: order.customer?.email || 'unknown',
-      product_count: order.line_items?.length || 0,
-      total_price: parseFloat(order.total_price),
-      tags: ['SWB'], // Default tag
-      source: 'shopify-rest',
-    }));
+    // ENRICH ORDERS WITH MARKET TAGS BASED ON COUNTRY
+    return orders.map((order) => {
+      const countryCode = order.shipping_address?.country_code || order.billing_address?.country_code;
+      const market = countryMapper.mapCountryToMarket(countryCode);
+
+      return {
+        shopify_order_id: order.id,
+        order_date: order.created_at,
+        order_hour: truncateToHour(order.created_at),
+        customer_email: order.customer?.email || 'unknown',
+        product_count: order.line_items?.length || 0,
+        total_price: parseFloat(order.total_price),
+        country_code: countryCode,
+        market_tag: market, // ← MAPPED FROM COUNTRY!
+        tags: [market], // For OTC calculation
+        source: 'shopify-rest',
+      };
+    });
   } catch (error) {
     console.warn(`⚠️ Shopify REST failed: ${error.message}`);
     return [];
