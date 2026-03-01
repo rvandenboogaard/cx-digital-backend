@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const shopifyService = require('../services/shopify.service');
+const shopifyRESTService = require('../services/shopify-rest.service');
 const dixaService = require('../services/dixa.service');
 
 // Get summary metrics
@@ -17,13 +18,34 @@ router.get('/summary', async (req, res) => {
     const tags = tag ? tag.split(',').map(t => t.trim()) : [];
     const filters = { dateFrom, dateTo, tags };
 
-    const orders = use_mock === 'true' 
-      ? await shopifyService.getMockOrders(filters)
-      : await shopifyService.getOrders(filters);
+    // Get orders - try REST first, fallback to mock
+    let orders;
+    if (use_mock === 'true') {
+      orders = await shopifyService.getMockOrders(filters);
+    } else {
+      try {
+        orders = await shopifyRESTService.getOrdersViaREST(filters);
+        if (!orders || orders.length === 0) {
+          orders = await shopifyService.getMockOrders(filters);
+        }
+      } catch (err) {
+        console.warn('REST API failed, using mock orders');
+        orders = await shopifyService.getMockOrders(filters);
+      }
+    }
 
-    const conversations = use_mock === 'true'
-      ? await dixaService.getMockConversations(filters)
-      : await dixaService.getConversations(filters);
+    // Get conversations - try API first, fallback to mock
+    let conversations;
+    if (use_mock === 'true') {
+      conversations = await dixaService.getMockConversations(filters);
+    } else {
+      try {
+        conversations = await dixaService.getConversations(filters);
+      } catch (err) {
+        console.warn('Dixa API failed, using mock conversations');
+        conversations = await dixaService.getMockConversations(filters);
+      }
+    }
 
     const totalOrders = orders.length;
     const totalConversations = conversations.length;
