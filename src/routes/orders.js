@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const shopifyService = require('../services/shopify.service');
-const shopifyGraphQLService = require('../services/shopify-graphql.service');
+const shopifyGraphQLHybridService = require('../services/shopify-graphql-hybrid.service');
 
 router.get('/', async (req, res) => {
   try {
@@ -13,23 +13,41 @@ router.get('/', async (req, res) => {
     const filters = { dateFrom, dateTo };
     if (tag) filters.tag = tag;
 
-    // Try GraphQL first (better Vercel support), fallback to mock
     let orders;
+    let source = 'unknown';
+    
     if (use_mock === 'true') {
       orders = await shopifyService.getMockOrders(filters);
+      source = 'mock';
     } else {
       try {
-        orders = await shopifyGraphQLService.getOrdersViaGraphQL(filters);
-        console.log(`✅ Got ${orders.length} real orders from Shopify GraphQL`);
+        orders = await shopifyGraphQLHybridService.getOrdersViaGraphQLHybrid(filters);
+        source = 'shopify-live';
+        console.log(`✅ Loaded ${orders.length} LIVE orders from Shopify`);
       } catch (graphqlError) {
-        console.warn('GraphQL failed, falling back to mock:', graphqlError.message);
+        console.warn('GraphQL failed, using mock data:', graphqlError.message);
         orders = await shopifyService.getMockOrders(filters);
+        source = 'mock-fallback';
       }
     }
 
     const filteredOrders = tag ? orders.filter(o => o.tags && o.tags.includes(tag)) : orders;
-    res.json({ success: true, data: { tag: tag || 'all', total_orders: filteredOrders.length, orders: filteredOrders, summary: { total_orders: filteredOrders.length, total_products: filteredOrders.reduce((sum, o) => sum + o.product_count, 0) } } });
-  } catch (error) { res.status(500).json({ error: error.message }); }
+    res.json({ 
+      success: true, 
+      data: { 
+        source,
+        tag: tag || 'all', 
+        total_orders: filteredOrders.length, 
+        orders: filteredOrders, 
+        summary: { 
+          total_orders: filteredOrders.length, 
+          total_products: filteredOrders.reduce((sum, o) => sum + o.product_count, 0) 
+        } 
+      } 
+    });
+  } catch (error) { 
+    res.status(500).json({ error: error.message }); 
+  }
 });
 
 module.exports = router;
