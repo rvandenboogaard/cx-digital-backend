@@ -95,4 +95,126 @@ router.get('/realistic-otc/stores', async (req, res) => {
   });
 });
 
+/**
+ * Breakdown by channel (MAIL vs CHAT vs BOL)
+ */
+router.get('/realistic-otc/channels', async (req, res) => {
+  const channelData = {
+    MAIL: { orders: 100, conversations: 42, ratio: 42 },
+    CHAT: { orders: 100, conversations: 38, ratio: 38 },
+    BOL: { orders: 100, conversations: 35, ratio: 35 }
+  };
+
+  const byChannel = {};
+  Object.entries(channelData).forEach(([channel, data]) => {
+    byChannel[channel] = {
+      channel,
+      orders: data.orders,
+      conversations: data.conversations,
+      otc_ratio: data.ratio
+    };
+  });
+
+  res.json({
+    success: true,
+    source: 'realistic-mock-data',
+    data: {
+      by_channel: byChannel,
+      note: 'MAIL+CHAT combined in main OTC%, BOL tracked separately'
+    }
+  });
+});
+
+/**
+ * 7-day trending data
+ */
+router.get('/realistic-otc/trend/7days', async (req, res) => {
+  const days = [];
+  const today = new Date();
+  
+  for (let i = 6; i >= 0; i--) {
+    const date = new Date(today);
+    date.setDate(date.getDate() - i);
+    const dateStr = date.toISOString().split('T')[0];
+    
+    // Realistic trend: slight variations day to day
+    const baseOTC = 47 + (Math.random() * 10 - 5); // 42-52%
+    const orders = Math.floor(14 + Math.random() * 4); // 14-18 per day
+    const conversations = Math.floor(orders * baseOTC / 100);
+    
+    days.push({
+      date: dateStr,
+      orders,
+      conversations,
+      otc_ratio: parseFloat(((conversations / orders) * 100).toFixed(1))
+    });
+  }
+
+  res.json({
+    success: true,
+    source: 'realistic-mock-data',
+    data: {
+      trend: days,
+      period: '7 days',
+      average_otc: (days.reduce((sum, d) => sum + d.otc_ratio, 0) / days.length).toFixed(1)
+    }
+  });
+});
+
+/**
+ * 30-day trending data
+ */
+router.get('/realistic-otc/trend/30days', async (req, res) => {
+  const days = [];
+  const today = new Date();
+  
+  for (let i = 29; i >= 0; i--) {
+    const date = new Date(today);
+    date.setDate(date.getDate() - i);
+    const dateStr = date.toISOString().split('T')[0];
+    
+    // Realistic trend: slight variations day to day
+    const baseOTC = 47 + (Math.random() * 15 - 7.5); // 39.5-62.5%
+    const orders = Math.floor(14 + Math.random() * 8); // 14-22 per day
+    const conversations = Math.floor(orders * baseOTC / 100);
+    
+    days.push({
+      date: dateStr,
+      orders,
+      conversations,
+      otc_ratio: parseFloat(((conversations / orders) * 100).toFixed(1))
+    });
+  }
+
+  res.json({
+    success: true,
+    source: 'realistic-mock-data',
+    data: {
+      trend: days,
+      period: '30 days',
+      average_otc: (days.reduce((sum, d) => sum + d.otc_ratio, 0) / days.length).toFixed(1)
+    }
+  });
+});
+
+/**
+ * Contact reasons (C1-C2 simulation)
+ */
+router.get('/realistic-otc/contact-reasons', async (req, res) => {
+  res.json({
+    success: true,
+    source: 'realistic-mock-data',
+    data: {
+      top_reasons: [
+        { c1: 'Delivery', c2: 'Where is my order?', count: 18, percentage: 38 },
+        { c1: 'Returns', c2: 'How to return?', count: 12, percentage: 26 },
+        { c1: 'Product', c2: 'Size/fit questions', count: 9, percentage: 19 },
+        { c1: 'Payment', c2: 'Payment failed', count: 5, percentage: 11 },
+        { c1: 'Account', c2: 'Login issues', count: 3, percentage: 6 }
+      ],
+      note: 'Simulated C1-C2 data for future queue mapping'
+    }
+  });
+});
+
 module.exports = router;
