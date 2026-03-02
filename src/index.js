@@ -23,12 +23,20 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+console.log('✅ Registering API routes...');
 app.use('/api/orders', ordersRoutes);
+console.log('  ✓ /api/orders');
 app.use('/api/conversations', conversationsRoutes);
+console.log('  ✓ /api/conversations');
 app.use('/api/otc', otcRoutes);
+console.log('  ✓ /api/otc');
 app.use('/api/dashboard', dashboardRoutes);
+console.log('  ✓ /api/dashboard');
 app.use('/api/test', testRoutes);
+console.log('  ✓ /api/test');
 app.use('/api/webhooks', webhooksRoutes);
+console.log('  ✓ /api/webhooks');
+console.log('✅ All routes registered!\n');
 
 // Manual sync endpoint (for testing)
 // app.post('/api/admin/sync', async (req, res) => {
