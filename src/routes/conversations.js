@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const dixaService = require('../services/dixa.service');
+const tagMapper = require('../services/tag-mapper.service');
 
 router.get('/', async (req, res) => {
   try {
@@ -34,16 +35,30 @@ router.get('/', async (req, res) => {
       };
     }
 
+    // Enrich conversations with C1-C2 categorization
+    const enrichedConversations = conversations.map(conv => ({
+      ...conv,
+      c1c2: tagMapper.mapTagsToC1C2(conv.tags)
+    }));
+
+    // Calculate C1-C2 statistics
+    const c1c2Stats = tagMapper.getC1C2Stats(enrichedConversations);
+
     res.json({
       success: true,
       data: {
         tag: tag || 'all',
         total_conversations: conversations.length,
-        conversations: conversations,
+        conversations: enrichedConversations,
+        c1c2_statistics: c1c2Stats,
         otc_ratio: otcRatio,
         summary: {
           total_orders: conversations.length,
           date_range: { from: dateFrom, to: dateTo },
+          top_c1_categories: Object.entries(c1c2Stats.by_c1)
+            .sort((a, b) => b[1].count - a[1].count)
+            .slice(0, 3)
+            .reduce((acc, [c1, data]) => ({ ...acc, [c1]: data }), {}),
         },
       },
     });
