@@ -96,17 +96,19 @@ async function calculateBacklogEvolution(dateFrom, dateTo) {
 
     // Count new and closed tickets per day
     conversations.forEach(conv => {
-      // Count new tickets
+      // Count new tickets (handle both milliseconds and seconds)
       if (conv.created_at) {
-        const createdDate = new Date(conv.created_at * 1000).toISOString().split('T')[0];
+        const timestamp = conv.created_at > 10000000000 ? conv.created_at : conv.created_at * 1000;
+        const createdDate = new Date(timestamp).toISOString().split('T')[0];
         if (days[createdDate]) {
           days[createdDate].new_tickets += 1;
         }
       }
 
-      // Count closed tickets
+      // Count closed tickets (handle both milliseconds and seconds)
       if (conv.closed_at) {
-        const closedDate = new Date(conv.closed_at * 1000).toISOString().split('T')[0];
+        const timestamp = conv.closed_at > 10000000000 ? conv.closed_at : conv.closed_at * 1000;
+        const closedDate = new Date(timestamp).toISOString().split('T')[0];
         if (days[closedDate]) {
           days[closedDate].closed_tickets += 1;
         }
@@ -141,7 +143,8 @@ async function calculateBacklogEvolution(dateFrom, dateTo) {
         // Calculate average handling time for conversations closed this day
         const conversationsClosedThisDay = conversations.filter(conv => {
           if (!conv.closed_at) return false;
-          const closedDate = new Date(conv.closed_at * 1000).toISOString().split('T')[0];
+          const timestamp = conv.closed_at > 10000000000 ? conv.closed_at : conv.closed_at * 1000;
+          const closedDate = new Date(timestamp).toISOString().split('T')[0];
           return closedDate === dayStr;
         });
 
