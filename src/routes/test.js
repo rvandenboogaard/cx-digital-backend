@@ -101,7 +101,7 @@ router.get('/realistic-otc/stores', (req, res) => {
     });
   } catch (error) {
     console.error('Error in /stores:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: 'Store breakdown failed' });
   }
 });
 
@@ -146,22 +146,28 @@ router.get('/realistic-otc/channels', (req, res) => {
 router.get('/realistic-otc/trend/7days', (req, res) => {
   try {
     const days = [];
-    const today = new Date();
+    const baseData = [
+      { orders: 15, conversations: 7 },
+      { orders: 16, conversations: 8 },
+      { orders: 14, conversations: 6 },
+      { orders: 17, conversations: 8 },
+      { orders: 15, conversations: 7 },
+      { orders: 18, conversations: 8 },
+      { orders: 15, conversations: 7 }
+    ];
     
+    const today = new Date();
     for (let i = 6; i >= 0; i--) {
       const date = new Date(today);
       date.setDate(date.getDate() - i);
       const dateStr = date.toISOString().split('T')[0];
-      
-      const baseOTC = 47 + (Math.random() * 10 - 5);
-      const orders = Math.floor(14 + Math.random() * 4);
-      const conversations = Math.floor(orders * baseOTC / 100);
+      const data = baseData[6 - i];
       
       days.push({
         date: dateStr,
-        orders,
-        conversations,
-        otc_ratio: parseFloat(((conversations / orders) * 100).toFixed(1))
+        orders: data.orders,
+        conversations: data.conversations,
+        otc_ratio: parseFloat(((data.conversations / data.orders) * 100).toFixed(1))
       });
     }
 
@@ -176,7 +182,7 @@ router.get('/realistic-otc/trend/7days', (req, res) => {
     });
   } catch (error) {
     console.error('Error in /trend/7days:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: 'Trend calculation failed' });
   }
 });
 
@@ -188,14 +194,15 @@ router.get('/realistic-otc/trend/30days', (req, res) => {
     const days = [];
     const today = new Date();
     
+    // Generate simple 30-day data
     for (let i = 29; i >= 0; i--) {
       const date = new Date(today);
       date.setDate(date.getDate() - i);
       const dateStr = date.toISOString().split('T')[0];
       
-      const baseOTC = 47 + (Math.random() * 15 - 7.5);
-      const orders = Math.floor(14 + Math.random() * 8);
-      const conversations = Math.floor(orders * baseOTC / 100);
+      // Simple pattern: 14-22 orders per day
+      const orders = 14 + (i % 9);
+      const conversations = Math.floor(orders * 0.47);
       
       days.push({
         date: dateStr,
@@ -216,7 +223,7 @@ router.get('/realistic-otc/trend/30days', (req, res) => {
     });
   } catch (error) {
     console.error('Error in /trend/30days:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: 'Trend calculation failed' });
   }
 });
 
