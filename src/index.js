@@ -14,6 +14,7 @@ const ordersRoutes = require('./routes/orders');
 const conversationsRoutes = require('./routes/conversations');
 const otcRoutes = require('./routes/otc');
 const dashboardRoutes = require('./routes/dashboard');
+const testRoutes = require('./routes/test');
 //const { syncDixaAndShopifyData } = require('./jobs/hourly-sync');
 
 // Routes
@@ -25,6 +26,7 @@ app.use('/api/orders', ordersRoutes);
 app.use('/api/conversations', conversationsRoutes);
 app.use('/api/otc', otcRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/test', testRoutes);
 
 // Manual sync endpoint (for testing)
 // app.post('/api/admin/sync', async (req, res) => {
