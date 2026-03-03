@@ -103,22 +103,45 @@ async function calculateBacklogEvolution(dateFrom, dateTo) {
     }
 
     // Count new and closed tickets per day
+    // Also extend days range if we get conversations outside the initial range
     conversations.forEach(conv => {
       // created_at is ALWAYS present (in milliseconds)
       if (conv.created_at) {
         const createdDate = new Date(conv.created_at).toISOString().split('T')[0];
-        if (days[createdDate]) {
-          days[createdDate].new_tickets += 1;
+        // Create day if it doesn't exist (handles conversations outside initial range)
+        if (!days[createdDate]) {
+          days[createdDate] = {
+            date: createdDate,
+            day_name: getDayName(new Date(conv.created_at)),
+            new_tickets: 0,
+            closed_tickets: 0,
+            open_tickets: 0,
+            netto_flow: 0,
+            backlog_status: 'stable',
+            avg_handling_seconds: 0,
+          };
         }
+        days[createdDate].new_tickets += 1;
       }
 
       // closed_at can be NULL if conversation is still open!
       // Only count as closed if: closed_at exists AND status is "closed"
       if (conv.closed_at && conv.status === 'closed') {
         const closedDate = new Date(conv.closed_at).toISOString().split('T')[0];
-        if (days[closedDate]) {
-          days[closedDate].closed_tickets += 1;
+        // Create day if it doesn't exist
+        if (!days[closedDate]) {
+          days[closedDate] = {
+            date: closedDate,
+            day_name: getDayName(new Date(conv.closed_at)),
+            new_tickets: 0,
+            closed_tickets: 0,
+            open_tickets: 0,
+            netto_flow: 0,
+            backlog_status: 'stable',
+            avg_handling_seconds: 0,
+          };
         }
+        days[closedDate].closed_tickets += 1;
       }
     });
 
