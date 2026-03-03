@@ -260,4 +260,54 @@ router.get('/categories', async (req, res) => {
   }
 });
 
+// Get C1 Category Performance (with FCR, AHT, AST, SLA metrics)
+router.get('/c1-categories', async (req, res) => {
+  try {
+    const c1CategoryService = require('../services/c1-category.service');
+    const dateFrom = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const dateTo = new Date().toISOString();
+    
+    const fromDateStr = dateFrom.split('T')[0];
+    const toDateStr = dateTo.split('T')[0];
+
+    console.log(`📊 C1 Categories: Fetching conversations from ${fromDateStr} to ${toDateStr}`);
+
+    const backlogService = require('../services/dixa-backlog.service');
+    const conversations = await backlogService.getConversationsFromExports(
+      new Date(dateFrom),
+      new Date(dateTo)
+    );
+
+    if (!conversations || conversations.length === 0) {
+      console.log('ℹ️ No conversations found for C1 analysis');
+      return res.json({
+        success: true,
+        data: {
+          categories: [],
+          summary: {
+            total_tickets: 0,
+            avg_fcr: 0,
+            avg_aht_seconds: 0,
+            avg_ast_seconds: 0,
+          },
+        },
+      });
+    }
+
+    const result = c1CategoryService.calculateC1CategoryPerformance(conversations);
+    
+    res.json({
+      success: true,
+      data: result,
+      period: { from: fromDateStr, to: toDateStr },
+    });
+  } catch (error) {
+    console.error('Error in /c1-categories:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
 module.exports = router;
