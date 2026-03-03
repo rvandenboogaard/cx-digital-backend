@@ -76,6 +76,14 @@ async function calculateBacklogEvolution(dateFrom, dateTo) {
       };
     }
 
+    // DEBUG: Log sample conversations
+    console.log(`📋 DEBUG: First 3 conversations (of ${conversations.length}):`);
+    conversations.slice(0, 3).forEach((conv, idx) => {
+      const createdDate = conv.created_at ? new Date(conv.created_at).toISOString().split('T')[0] : 'null';
+      const closedDate = conv.closed_at ? new Date(conv.closed_at).toISOString().split('T')[0] : 'null';
+      console.log(`  [${idx}] id=${conv.id}, created=${createdDate}, closed=${closedDate}, status=${conv.status}`);
+    });
+
     // Initialize 7-day structure
     const days = {};
     const current = new Date(dateFrom);
