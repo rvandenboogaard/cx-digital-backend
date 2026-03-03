@@ -82,6 +82,8 @@ async function calculateBacklogEvolution(dateFrom, dateTo) {
       const createdDate = conv.created_at ? new Date(conv.created_at).toISOString().split('T')[0] : 'null';
       const closedDate = conv.closed_at ? new Date(conv.closed_at).toISOString().split('T')[0] : 'null';
       console.log(`  [${idx}] id=${conv.id}, created=${createdDate}, closed=${closedDate}, status=${conv.status}`);
+      console.log(`  [${idx}] RAW: created_at=${conv.created_at}, closed_at=${conv.closed_at}, status=${conv.status}`);
+      console.log(`  [${idx}] KEYS: ${Object.keys(conv).slice(0, 10).join(', ')}`);
     });
 
     // Initialize 7-day structure
