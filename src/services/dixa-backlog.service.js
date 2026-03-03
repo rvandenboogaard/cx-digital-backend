@@ -96,19 +96,18 @@ async function calculateBacklogEvolution(dateFrom, dateTo) {
 
     // Count new and closed tickets per day
     conversations.forEach(conv => {
-      // Count new tickets (handle both milliseconds and seconds)
+      // created_at is ALWAYS present (in milliseconds)
       if (conv.created_at) {
-        const timestamp = conv.created_at > 10000000000 ? conv.created_at : conv.created_at * 1000;
-        const createdDate = new Date(timestamp).toISOString().split('T')[0];
+        const createdDate = new Date(conv.created_at).toISOString().split('T')[0];
         if (days[createdDate]) {
           days[createdDate].new_tickets += 1;
         }
       }
 
-      // Count closed tickets (handle both milliseconds and seconds)
-      if (conv.closed_at) {
-        const timestamp = conv.closed_at > 10000000000 ? conv.closed_at : conv.closed_at * 1000;
-        const closedDate = new Date(timestamp).toISOString().split('T')[0];
+      // closed_at can be NULL if conversation is still open!
+      // Only count as closed if: closed_at exists AND status is "closed"
+      if (conv.closed_at && conv.status === 'closed') {
+        const closedDate = new Date(conv.closed_at).toISOString().split('T')[0];
         if (days[closedDate]) {
           days[closedDate].closed_tickets += 1;
         }
@@ -141,16 +140,17 @@ async function calculateBacklogEvolution(dateFrom, dateTo) {
         }
 
         // Calculate average handling time for conversations closed this day
+        // Only count if status === "closed" AND closed_at exists
         const conversationsClosedThisDay = conversations.filter(conv => {
-          if (!conv.closed_at) return false;
-          const timestamp = conv.closed_at > 10000000000 ? conv.closed_at : conv.closed_at * 1000;
-          const closedDate = new Date(timestamp).toISOString().split('T')[0];
+          if (!conv.closed_at || conv.status !== 'closed') return false;
+          const closedDate = new Date(conv.closed_at).toISOString().split('T')[0];
           return closedDate === dayStr;
         });
 
         if (conversationsClosedThisDay.length > 0) {
           const totalHandling = conversationsClosedThisDay.reduce((sum, conv) => {
-            return sum + (conv.handling_duration || 0);
+            // Use exports_handling_duration (in seconds)
+            return sum + (conv.exports_handling_duration || 0);
           }, 0);
           day.avg_handling_seconds = Math.round(totalHandling / conversationsClosedThisDay.length);
           totalHandlingSeconds += totalHandling;
