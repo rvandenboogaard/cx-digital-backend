@@ -2,7 +2,7 @@ const axios = require('axios');
 require('dotenv').config();
 
 const config = {
-  apiUrl: process.env.DIXA_API_URL || 'https://dev.dixa.io/v1',
+  apiUrl: process.env.DIXA_API_URL || 'https://exports.dixa.io/v1',
   apiKey: process.env.DIXA_API_KEY || process.env.DIXA_API_TOKEN,
 };
 
@@ -20,7 +20,7 @@ async function getConversations(filters = {}) {
   console.log(`Dixa: Fetching conversations from ${dateFrom} to ${dateTo}`);
 
   // Use Exports API for full conversation data including AHT and SLA fields
-  const url = `${config.apiUrl}/conversations`;
+  const url = `${config.apiUrl}/conversation_export`;
 
   const params = {
     created_after: dateFrom,
