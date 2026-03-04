@@ -310,4 +310,52 @@ router.get('/c1-categories', async (req, res) => {
   }
 });
 
+// Get SLA Performance (Response & Resolution time compliance)
+router.get('/sla-performance', async (req, res) => {
+  try {
+    const slaService = require('../services/sla-performance.service');
+    const dateFrom = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const dateTo = new Date().toISOString();
+    
+    const fromDateStr = dateFrom.split('T')[0];
+    const toDateStr = dateTo.split('T')[0];
+
+    console.log(`📊 SLA Performance: Fetching conversations from ${fromDateStr} to ${toDateStr}`);
+
+    const backlogService = require('../services/dixa-backlog.service');
+    const conversations = await backlogService.getConversationsFromExports(
+      new Date(dateFrom),
+      new Date(dateTo)
+    );
+
+    if (!conversations || conversations.length === 0) {
+      console.log('ℹ️ No conversations found for SLA analysis');
+      return res.json({
+        success: true,
+        data: {
+          policies: [],
+          summary: {
+            total_conversations: 0,
+            avg_sla_compliance: 0,
+          },
+        },
+      });
+    }
+
+    const result = slaService.calculateSLAPerformance(conversations);
+    
+    res.json({
+      success: true,
+      data: result,
+      period: { from: fromDateStr, to: toDateStr },
+    });
+  } catch (error) {
+    console.error('Error in /sla-performance:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
 module.exports = router;
