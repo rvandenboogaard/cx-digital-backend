@@ -13,13 +13,15 @@ router.get('/evolution', async (req, res) => {
     const dateTo = new Date();
     const dateFrom = new Date(dateTo.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-    console.log(`📊 /backlog/evolution - Calculating for ${dateFrom.toISOString().split('T')[0]} to ${dateTo.toISOString().split('T')[0]}`);
+    console.log(`📊 /backlog/evolution - START - Calculating for ${dateFrom.toISOString().split('T')[0]} to ${dateTo.toISOString().split('T')[0]}`);
 
     const result = await backlogService.calculateBacklogEvolution(dateFrom, dateTo);
+    
+    console.log(`📊 /backlog/evolution - RESULT:`, result.success ? `✅ Got data` : `❌ No data`);
 
     res.json(result);
   } catch (error) {
-    console.error('Error in /backlog/evolution:', error);
+    console.error('❌ Error in /backlog/evolution:', error.message, error.stack);
     res.status(500).json({
       success: false,
       error: error.message,
