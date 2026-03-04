@@ -85,21 +85,27 @@ function calculateSLAPerformance(conversations) {
 
   // Process conversations
   conversations.forEach(conv => {
+    // Determine queue/channel for policy matching
+    const queueName = conv.queue_name ? conv.queue_name.toLowerCase() : '';
+    const channelType = conv.initial_channel ? conv.initial_channel.toLowerCase() : '';
+    const tags = conv.tags ? conv.tags.map(t => t.toLowerCase()) : [];
+    
     // Response SLA
     if (conv.assigned_at && conv.created_at) {
       const responseMinutes = calculateBusinessHours(conv.created_at, conv.assigned_at) / 60;
       
-      // Determine which response SLA applies (simple: based on tags)
+      // Determine which response SLA applies (based on queue/channel/tags)
       let responsePolicy = 'Response SLA - Email'; // default
       
-      if (conv.tags && conv.tags.length > 0) {
-        if (conv.tags.some(t => t.toLowerCase().includes('urgent'))) {
-          responsePolicy = 'Response SLA - Urgent';
-        } else if (conv.tags.some(t => t.toLowerCase().includes('review'))) {
-          responsePolicy = 'Response SLA - Reviews';
-        } else if (conv.tags.some(t => t.toLowerCase().includes('chat') || t.toLowerCase().includes('contact'))) {
-          responsePolicy = 'Response SLA - Chat/Contact form';
-        }
+      // Check queue name first (most accurate)
+      if (queueName.includes('urgent')) {
+        responsePolicy = 'Response SLA - Urgent';
+      } else if (queueName.includes('review') || tags.some(t => t.includes('review'))) {
+        responsePolicy = 'Response SLA - Reviews';
+      } else if (queueName.includes('chat') || queueName.includes('contact') || channelType === 'widgetchat' || channelType === 'contactform') {
+        responsePolicy = 'Response SLA - Chat/Contact form';
+      } else if (channelType === 'email' || queueName.includes('email')) {
+        responsePolicy = 'Response SLA - Email';
       }
       
       const slaPolicy = SLA_POLICIES[responsePolicy];
@@ -119,17 +125,18 @@ function calculateSLAPerformance(conversations) {
     if (conv.closed_at && conv.created_at && conv.status === 'closed') {
       const resolutionMinutes = calculateBusinessHours(conv.created_at, conv.closed_at) / 60;
       
-      // Determine which resolution SLA applies
+      // Determine which resolution SLA applies (based on queue/channel/tags)
       let resolutionPolicy = 'Resolution SLA - Email'; // default
       
-      if (conv.tags && conv.tags.length > 0) {
-        if (conv.tags.some(t => t.toLowerCase().includes('urgent'))) {
-          resolutionPolicy = 'Resolution SLA - Urgent';
-        } else if (conv.tags.some(t => t.toLowerCase().includes('review'))) {
-          resolutionPolicy = 'Resolution SLA - Reviews';
-        } else if (conv.tags.some(t => t.toLowerCase().includes('chat') || t.toLowerCase().includes('contact'))) {
-          resolutionPolicy = 'Resolution SLA - Chat/Contact form';
-        }
+      // Check queue name first (most accurate)
+      if (queueName.includes('urgent')) {
+        resolutionPolicy = 'Resolution SLA - Urgent';
+      } else if (queueName.includes('review') || tags.some(t => t.includes('review'))) {
+        resolutionPolicy = 'Resolution SLA - Reviews';
+      } else if (queueName.includes('chat') || queueName.includes('contact') || channelType === 'widgetchat' || channelType === 'contactform') {
+        resolutionPolicy = 'Resolution SLA - Chat/Contact form';
+      } else if (channelType === 'email' || queueName.includes('email')) {
+        resolutionPolicy = 'Resolution SLA - Email';
       }
       
       const slaPolicy = SLA_POLICIES[resolutionPolicy];
