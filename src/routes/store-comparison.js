@@ -9,12 +9,12 @@ const STORE_DEFINITIONS = [
   { id: 'smartwatchbanden.nl', name: 'smartwatchbanden.nl', tags: ['smartwatchbanden.nl', 'swb-nl', 'swb_nl'] },
   { id: 'smartwatcharmbaender.de', name: 'smartwatcharmbaender.de', tags: ['smartwatcharmbaender.de', 'swb-de', 'swb_de', 'swa'] },
   { id: 'braceletsmartwatch.fr', name: 'braceletsmartwatch.fr', tags: ['braceletsmartwatch.fr', 'swb-fr', 'swb_fr', 'bsw'] },
-  { id: 'smartwatchbanden.be', name: 'smartwatchbanden.be', tags: ['smartwatchbanden.be', 'swb-be', 'swb_be'] },
-  { id: 'horlogebanden.nl', name: 'horlogebanden.nl', tags: ['horlogebanden.nl', 'hb-nl', 'hb_nl'] },
   { id: 'coque-telephone.fr', name: 'coque-telephone.fr', tags: ['coque-telephone.fr', 'ct-fr', 'ct_fr'] },
   { id: 'huellen-shop.de', name: 'huellen-shop.de', tags: ['huellen-shop.de', 'hs-de', 'hs_de'] },
-  { id: 'correasmarwatch.es', name: 'correasmarwatch.es', tags: ['correasmarwatch.es', 'csw-es', 'csw_es', 'csw'] },
+  { id: 'correasmartwatch.es', name: 'correasmartwatch.es', tags: ['correasmartwatch.es', 'csw-es', 'csw_es', 'csw'] },
   { id: 'smartwatch-straps.co.uk', name: 'smartwatch-straps.co.uk', tags: ['smartwatch-straps.co.uk', 'sws-uk', 'sws_uk', 'sws'] },
+  { id: 'phone-factory.nl', name: 'phone-factory.nl', tags: ['phone-factory.nl', 'pf-nl', 'pf_nl'] },
+  { id: 'xoxowildhearts.com', name: 'XoXoWildhearts.com', tags: ['xoxowildhearts.com', 'xoxo', 'xoxo-wildhearts'] },
 ];
 
 // SLA target: first response within 8 business hours
