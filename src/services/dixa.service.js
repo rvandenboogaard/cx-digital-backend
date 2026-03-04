@@ -23,10 +23,9 @@ async function getConversations(filters = {}) {
   const url = `${config.apiUrl}/conversation_export`;
 
   const params = {
-    created_after: dateFrom,
-    created_before: dateTo,
-    limit: 500,
-  };
+  created_after: new Date(dateFrom).getTime(),
+  created_before: new Date(dateTo).getTime(),
+};
 
   const response = await axios.get(url, {
     params,
