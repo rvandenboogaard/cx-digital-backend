@@ -170,4 +170,4 @@ router.get('/stores', async (req, res) => {
     const markets = {};
     allMarkets.forEach(market => {
       const marketOrders = orders.filter(o => o.tags && o.tags.some(t => t.toLowerCase().includes(market)));
-      const marketConv
+      const marketConversations = conversations.filter(c => c.tags && c.tags.some(t => t.toLowerCase().includes(market)));
