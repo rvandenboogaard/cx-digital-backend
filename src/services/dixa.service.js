@@ -1,68 +1,63 @@
 const axios = require('axios');
 require('dotenv').config();
 
-// Dixa configuration from environment variables
 const config = {
   apiUrl: process.env.DIXA_API_URL || 'https://dev.dixa.io/v1',
-  apiKey: process.env.DIXA_API_KEY || process.env.DIXA_API_TOKEN, // Try both
+  apiKey: process.env.DIXA_API_KEY || process.env.DIXA_API_TOKEN,
 };
 
-// Validate required env vars on startup
 if (!config.apiKey) {
-  console.warn('⚠️ Dixa API credentials missing - DIXA_API_KEY or DIXA_API_TOKEN not set');
+  console.warn('WARNING: Dixa API credentials missing - DIXA_API_KEY or DIXA_API_TOKEN not set');
 }
 
 async function getConversations(filters = {}) {
-  const { dateFrom, dateTo, tags = [] } = filters;
+  const { dateFrom, dateTo } = filters;
 
-  try {
-    // Build Dixa API request
-    const url = `${config.apiUrl}/conversations`;
-    
-    // Filter by date range and tags
-    const params = {
-      started_at_from: dateFrom,
-      started_at_to: dateTo,
-      limit: 250,
-    };
-
-    console.log(`💬 Dixa: Fetching conversations from ${dateFrom} to ${dateTo}${tags.length ? ` (tags: ${tags.join(', ')})` : ''}`);
-
-    const response = await axios.get(url, {
-      params,
-      headers: {
-        'Authorization': `Bearer ${config.apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      timeout: 10000,
-    });
-
-    const conversations = response.data.conversations || [];
-
-    // Filter by tags if provided
-    let filtered = conversations;
-    if (tags.length > 0) {
-      filtered = conversations.filter(conv => {
-        const convTags = conv.labels ? conv.labels.map(l => l.name) : [];
-        return tags.some(tag => convTags.includes(tag));
-      });
-    }
-
-    // Transform to our data model
-    return filtered.map((conv) => ({
-      dixa_conversation_id: conv.id,
-      conversation_date: conv.started_at,
-      conversation_hour: truncateToHour(conv.started_at),
-      customer_email: conv.contact?.email || 'unknown',
-      message_count: conv.message_count || 0,
-      tags: conv.labels ? conv.labels.map(l => l.name) : [],
-      source: 'dixa',
-    }));
-  } catch (error) {
-    console.warn(`⚠️ Dixa API Error (${error.status || error.code}): ${error.message}`);
-    console.log('📦 Falling back to mock conversations');
-    return getMockConversations(filters);
+  if (!config.apiKey) {
+    throw new Error('Dixa API key not configured. Cannot fetch live data.');
   }
+
+  console.log(`Dixa: Fetching conversations from ${dateFrom} to ${dateTo}`);
+
+  // Use Exports API for full conversation data including AHT and SLA fields
+  const url = `${config.apiUrl}/exports/conversations`;
+
+  const params = {
+    created_after: dateFrom,
+    created_before: dateTo,
+    limit: 500,
+  };
+
+  const response = await axios.get(url, {
+    params,
+    headers: {
+      'Authorization': `Bearer ${config.apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    timeout: 15000,
+  });
+
+  const conversations = response.data.data || response.data.conversations || [];
+
+  console.log(`Dixa: Retrieved ${conversations.length} conversations`);
+
+  return conversations.map((conv) => ({
+    dixa_conversation_id: conv.id,
+    conversation_date: conv.created_at || conv.started_at,
+    conversation_hour: truncateToHour(conv.created_at || conv.started_at),
+    customer_email: conv.contact?.email || conv.requester_email || 'unknown',
+    message_count: conv.message_count || 0,
+    status: conv.state || conv.status || 'unknown',
+    reopened: conv.reopened || false,
+    tags: conv.labels
+      ? conv.labels.map(l => (typeof l === 'string' ? l : l.name))
+      : (conv.tags || []),
+    // AHT field from Exports API
+    exports_handling_duration: conv.handling_time_seconds || conv.exports_handling_duration || null,
+    // SLA field from Exports API
+    exports_first_response_time: conv.first_response_time_seconds || conv.exports_first_response_time || null,
+    source: 'dixa_live',
+  }));
 }
 
 function truncateToHour(isoDate) {
@@ -71,37 +66,7 @@ function truncateToHour(isoDate) {
   return date.toISOString();
 }
 
-// Mock function for testing without API token
-async function getMockConversations(filters = {}) {
-  const { dateFrom, dateTo, tags = [] } = filters;
-
-  console.log(`🧪 Dixa (MOCK): Generating test conversations`);
-
-  // Generate mock data for testing
-  const mockConversations = [];
-  const baseDate = new Date(dateFrom);
-  const mockTags = ['SWB', 'SWA', 'SWS', 'BSW', 'CSW']; // Market tags
-
-  for (let i = 0; i < 50; i++) {
-    const conversationDate = new Date(baseDate.getTime() + i * 3600000); // Every hour
-    const assignedTags = tags.length > 0 ? tags : [mockTags[i % mockTags.length]];
-    
-    mockConversations.push({
-      dixa_conversation_id: `MOCK-${i}`,
-      conversation_date: conversationDate.toISOString(),
-      conversation_hour: truncateToHour(conversationDate.toISOString()),
-      customer_email: `customer${i}@example.com`,
-      message_count: Math.floor(Math.random() * 10) + 1,
-      tags: assignedTags,
-      source: 'dixa',
-    });
-  }
-
-  return mockConversations;
-}
-
 module.exports = {
   getConversations,
-  getMockConversations,
   truncateToHour,
 };
