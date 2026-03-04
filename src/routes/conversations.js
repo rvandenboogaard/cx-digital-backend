@@ -5,8 +5,7 @@ const tagMapper = require('../services/tag-mapper.service');
 
 router.get('/', async (req, res) => {
   try {
-    const { tag, date_from, date_to, use_mock } = req.query;
-
+    const { tag, date_from, date_to } = req.query;
     // Validate date params
     if (!date_from || !date_to) {
       return res.status(400).json({ error: 'Missing date_from and date_to parameters' });
@@ -21,9 +20,7 @@ router.get('/', async (req, res) => {
     const filters = { dateFrom, dateTo, tags };
 
     // Use mock data if requested or if no API token is set
-    const conversations = use_mock === 'true' 
-      ? await dixaService.getMockConversations(filters)
-      : await dixaService.getConversations(filters);
+    const conversations = await dixaService.getConversations(filters);
 
     // Calculate OTC Ratio if tag is specified
     let otcRatio = null;
