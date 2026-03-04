@@ -32,13 +32,8 @@ router.get('/', async (req, res) => {
     console.log(`🔄 OTC Cache MISS - fetching fresh data for ${fromStr} to ${toStr}`);
 
     // Fetch both orders and conversations
-    const orders = use_mock === 'true'
-      ? await shopifyService.getMockOrders({ dateFrom: fromStr, dateTo: toStr })
-      : await shopifyService.getOrders({ dateFrom: fromStr, dateTo: toStr });
-
-    const conversations = use_mock === 'true'
-      ? await dixaService.getMockConversations({ dateFrom: fromStr, dateTo: toStr })
-      : await dixaService.getConversations({ dateFrom: fromStr, dateTo: toStr });
+    const orders = await shopifyService.getOrders({ dateFrom: fromStr, dateTo: toStr });
+    const conversations = await dixaService.getConversations({ dateFrom: fromStr, dateTo: toStr });
 
     // Calculate OTC Ratio: (Conversations / Orders) * 100
     const totalOrders = orders.length;
