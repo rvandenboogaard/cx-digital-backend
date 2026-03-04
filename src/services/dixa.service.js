@@ -31,7 +31,7 @@ async function getConversations(filters = {}) {
   const response = await axios.get(url, {
     params,
     headers: {
-      'Authorization': `Bearer ${config.apiKey}`,
+      'Authorization': `bearer ${config.apiKey}`,
       'Content-Type': 'application/json',
     },
     timeout: 15000,
