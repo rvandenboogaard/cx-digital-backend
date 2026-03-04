@@ -20,7 +20,7 @@ async function getConversations(filters = {}) {
   console.log(`Dixa: Fetching conversations from ${dateFrom} to ${dateTo}`);
 
   // Use Exports API for full conversation data including AHT and SLA fields
-  const url = `${config.apiUrl}/exports/conversations`;
+  const url = `${config.apiUrl}/conversations`;
 
   const params = {
     created_after: dateFrom,
