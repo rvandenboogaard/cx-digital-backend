@@ -3,6 +3,7 @@ const router = express.Router();
 const shopifyService = require('../services/shopify.service');
 const dixaService = require('../services/dixa.service');
 const tagMapperService = require('../services/tag-mapper.service');
+const cacheService = require('../services/cache.service');
 
 /**
  * GET /api/store-comparison
@@ -19,7 +20,17 @@ router.get('/', async (req, res) => {
     const fromStr = dateFrom.toISOString().split('T')[0];
     const toStr = dateTo.toISOString().split('T')[0];
     
-    console.log(`📊 Store Comparison: ${fromStr} to ${toStr}`);
+    // CACHE KEY
+    const cacheKey = `store_comparison_${fromStr}_${toStr}`;
+
+    // CHECK CACHE FIRST
+    const cachedResult = cacheService.get(cacheKey);
+    if (cachedResult) {
+      cachedResult.data.cache_status = 'HIT - served from 5 min cache';
+      return res.json(cachedResult);
+    }
+
+    console.log(`🔄 Store Comparison Cache MISS - fetching fresh data for ${fromStr} to ${toStr}`);
     
     // Get all orders and conversations
     const orders = await shopifyService.getOrders({ dateFrom: fromStr, dateTo: toStr });
@@ -46,7 +57,12 @@ router.get('/', async (req, res) => {
       const storeOrders = orders.filter(o => {
         // Orders have tags field with store name
         return o.tags && o.tags.some(t => t.toLowerCase().includes(store.toLowerCase()));
-      });
+      };
+    
+    // CACHE THE RESULT FOR 5 MINUTES
+    cacheService.set(cacheKey, result);
+    
+    res.json(result);
       
       // Filter conversations for this store
       const storeConversations = conversations.filter(c => {
@@ -85,7 +101,7 @@ router.get('/', async (req, res) => {
       };
     });
     
-    res.json({
+    const result = {
       success: true,
       data: {
         period: { from: fromStr, to: toStr },
@@ -96,6 +112,7 @@ router.get('/', async (req, res) => {
           total_tickets: Object.values(storeMetrics).reduce((sum, s) => sum + s.tickets, 0),
           avg_contact_rate: (Object.values(storeMetrics).reduce((sum, s) => sum + s.contact_rate, 0) / stores.length).toFixed(1),
           data_source: 'shopify_and_dixa_exports_api',
+          cache_status: 'FRESH - newly fetched, will cache for 5 minutes',
         },
       },
     });

@@ -2,82 +2,107 @@ const express = require('express');
 const router = express.Router();
 const shopifyService = require('../services/shopify.service');
 const dixaService = require('../services/dixa.service');
+const cacheService = require('../services/cache.service');
 
+/**
+ * GET /api/otc
+ * Calculate OTC ratio with CACHING (5 min TTL)
+ */
 router.get('/', async (req, res) => {
   try {
-    const { tag, date_from, date_to, use_mock } = req.query;
+    const { date_from, date_to, use_mock } = req.query;
 
-    // Validate date params
-    if (!date_from || !date_to) {
-      return res.status(400).json({ error: 'Missing date_from and date_to parameters' });
+    // Default: last 30 days
+    const dateTo = date_to ? new Date(date_to) : new Date();
+    const dateFrom = date_from ? new Date(date_from) : new Date(dateTo.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    const fromStr = dateFrom.toISOString().split('T')[0];
+    const toStr = dateTo.toISOString().split('T')[0];
+
+    // CACHE KEY
+    const cacheKey = `otc_${fromStr}_${toStr}`;
+
+    // CHECK CACHE FIRST
+    const cachedResult = cacheService.get(cacheKey);
+    if (cachedResult) {
+      cachedResult.data.cache_status = 'HIT - served from 5 min cache';
+      return res.json(cachedResult);
     }
 
-    const dateFrom = new Date(date_from).toISOString();
-    const dateTo = new Date(date_to).toISOString();
-
-    // Parse tags - can be single tag or comma-separated
-    const tags = tag ? tag.split(',').map(t => t.trim()) : [];
-
-    const filters = { dateFrom, dateTo, tags };
+    console.log(`🔄 OTC Cache MISS - fetching fresh data for ${fromStr} to ${toStr}`);
 
     // Fetch both orders and conversations
     const orders = use_mock === 'true'
-      ? await shopifyService.getMockOrders(filters)
-      : await shopifyService.getOrders(filters);
+      ? await shopifyService.getMockOrders({ dateFrom: fromStr, dateTo: toStr })
+      : await shopifyService.getOrders({ dateFrom: fromStr, dateTo: toStr });
 
     const conversations = use_mock === 'true'
-      ? await dixaService.getMockConversations(filters)
-      : await dixaService.getConversations(filters);
+      ? await dixaService.getMockConversations({ dateFrom: fromStr, dateTo: toStr })
+      : await dixaService.getConversations({ dateFrom: fromStr, dateTo: toStr });
 
     // Calculate OTC Ratio: (Conversations / Orders) * 100
     const totalOrders = orders.length;
     const totalConversations = conversations.length;
     const otcRatio = totalOrders > 0 ? ((totalConversations / totalOrders) * 100).toFixed(2) : 0;
 
-    // Calculate per-tag breakdown if tags specified
-    const perTagMetrics = {};
-    if (tags.length > 0) {
-      tags.forEach(t => {
-        const tagOrders = orders.filter(o => 
-          o.tags && o.tags.includes(t)
-        ).length || orders.length;
-        
-        const tagConversations = conversations.filter(c => 
-          c.tags && c.tags.includes(t)
-        ).length || conversations.length;
-        
-        const tagRatio = tagOrders > 0 ? ((tagConversations / tagOrders) * 100).toFixed(2) : 0;
-        
-        perTagMetrics[t] = {
-          orders: tagOrders,
-          conversations: tagConversations,
-          otc_ratio: parseFloat(tagRatio),
-        };
-      });
-    }
-
-    res.json({
+    const result = {
       success: true,
       data: {
-        period: { from: dateFrom, to: dateTo },
-        tags: tags.length > 0 ? tags : ['all'],
+        period: { from: fromStr, to: toStr },
         metrics: {
           total_orders: totalOrders,
           total_conversations: totalConversations,
           otc_ratio: parseFloat(otcRatio),
-          otc_ratio_raw: `${totalConversations} / ${totalOrders} * 100`,
+          otc_ratio_percentage: `${otcRatio}%`,
         },
-        per_tag_metrics: Object.keys(perTagMetrics).length > 0 ? perTagMetrics : null,
         interpretation: {
-          low_ratio: 'Few support tickets per order (good customer experience)',
-          high_ratio: 'Many support tickets per order (potential issues)',
-          threshold_warning: 'Above 5% OTC ratio may indicate customer service issues',
+          low_ratio: 'Few support tickets per order (good CX)',
+          high_ratio: 'Many support tickets per order (quality issues)',
+          current_status: otcRatio < 10 ? 'Excellent' : otcRatio < 30 ? 'Good' : otcRatio < 50 ? 'Fair' : 'Needs attention',
         },
+        cache_status: 'FRESH - newly fetched, will cache for 5 minutes',
       },
-    });
+    };
+
+    // CACHE THE RESULT FOR 5 MINUTES
+    cacheService.set(cacheKey, result);
+
+    res.json(result);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('❌ Error in /otc:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
   }
+});
+
+/**
+ * GET /api/otc/cache/stats
+ * View cache statistics
+ */
+router.get('/cache/stats', (req, res) => {
+  const stats = cacheService.stats();
+  res.json({
+    success: true,
+    data: {
+      cache_stats: stats,
+      ttl_seconds: 300,
+      message: 'Cache entries expire after 5 minutes',
+    },
+  });
+});
+
+/**
+ * POST /api/otc/cache/clear
+ * Clear cache manually (admin only)
+ */
+router.post('/cache/clear', (req, res) => {
+  cacheService.clearAll();
+  res.json({
+    success: true,
+    message: 'Cache cleared successfully',
+  });
 });
 
 module.exports = router;
