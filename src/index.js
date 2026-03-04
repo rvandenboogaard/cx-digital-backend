@@ -20,6 +20,7 @@ const testRoutes = require('./routes/test');
 const webhooksRoutes = require('./routes/webhooks');
 const fallbackRoutes = require('./routes/fallback');
 const backlogRoutes = require('./routes/backlog');
+const storeComparisonRoutes = require('./routes/store-comparison');
 //const { syncDixaAndShopifyData } = require('./jobs/hourly-sync');
 
 // Routes
@@ -44,6 +45,8 @@ app.use('/api/fallback', fallbackRoutes);
 console.log('  ✓ /api/fallback (EMERGENCY ENDPOINT)');
 app.use('/api/backlog', backlogRoutes);
 console.log('  ✓ /api/backlog (DIXA EXPORTS API)');
+app.use('/api/store-comparison', storeComparisonRoutes);
+console.log('  ✓ /api/store-comparison (MULTI-STORE METRICS)');
 console.log('✅ All routes registered!\n');
 
 // Manual sync endpoint (for testing)
