@@ -25,9 +25,10 @@ const SLA_POLICIES = {
 
 /**
  * Business hours calculation (Mon-Fri 9-17 CET)
+ * Optimized: calculates in hours, not minute-by-minute
  * @param {number} startMs - Start timestamp in milliseconds
  * @param {number} endMs - End timestamp in milliseconds
- * @returns {number} Minutes in business hours
+ * @returns {number} Minutes in business hours (Mon-Fri 9-17)
  */
 function calculateBusinessHours(startMs, endMs) {
   const start = new Date(startMs);
@@ -36,19 +37,40 @@ function calculateBusinessHours(startMs, endMs) {
   let businessMinutes = 0;
   let current = new Date(start);
   
+  // Move to next business hour if starting outside business hours
+  if (current.getHours() < 9 || current.getHours() >= 17 || current.getDay() === 0 || current.getDay() === 6) {
+    // Move to 9 AM next business day
+    current.setHours(9, 0, 0, 0);
+    const dayOfWeek = current.getDay();
+    if (dayOfWeek === 0) {
+      current.setDate(current.getDate() + 1); // Sunday -> Monday
+    } else if (dayOfWeek === 6) {
+      current.setDate(current.getDate() + 2); // Saturday -> Monday
+    }
+  }
+  
+  // Loop through hours (not minutes) for performance
   while (current < end) {
     const dayOfWeek = current.getDay();
     const hour = current.getHours();
     
     // Mon-Fri (1-5), 9-17
     if (dayOfWeek >= 1 && dayOfWeek <= 5 && hour >= 9 && hour < 17) {
-      businessMinutes += 1;
+      // Add remaining minutes in this hour
+      const minutesInHour = Math.min(60, Math.ceil((end - current) / (1000 * 60)));
+      businessMinutes += minutesInHour;
+      current.setHours(current.getHours() + 1, 0, 0, 0);
+    } else {
+      // Skip to 9 AM next business day
+      current.setHours(9, 0, 0, 0);
+      current.setDate(current.getDate() + 1);
+      const dow = current.getDay();
+      if (dow === 0) current.setDate(current.getDate() + 1); // Skip Sunday
+      if (dow === 6) current.setDate(current.getDate() + 2); // Skip Saturday
     }
-    
-    current.setMinutes(current.getMinutes() + 1);
   }
   
-  return businessMinutes;
+  return Math.max(0, businessMinutes);
 }
 
 /**
