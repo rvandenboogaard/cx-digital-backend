@@ -12,31 +12,27 @@ const cacheService = require('../services/cache.service');
 router.get('/', async (req, res) => {
   try {
     const { date_from, date_to } = req.query;
-    
+
     // Default: last 30 days
     const dateTo = date_to ? new Date(date_to) : new Date();
     const dateFrom = date_from ? new Date(date_from) : new Date(dateTo.getTime() - 30 * 24 * 60 * 60 * 1000);
-    
+
     const fromStr = dateFrom.toISOString().split('T')[0];
     const toStr = dateTo.toISOString().split('T')[0];
-    
-    // CACHE KEY
+
     const cacheKey = `store_comparison_${fromStr}_${toStr}`;
 
-    // CHECK CACHE FIRST
     const cachedResult = cacheService.get(cacheKey);
     if (cachedResult) {
       cachedResult.data.cache_status = 'HIT - served from 5 min cache';
       return res.json(cachedResult);
     }
 
-    console.log(`🔄 Store Comparison Cache MISS - fetching fresh data for ${fromStr} to ${toStr}`);
-    
-    // Get all orders and conversations
+    console.log(`Store Comparison Cache MISS - fetching fresh data for ${fromStr} to ${toStr}`);
+
     const orders = await shopifyService.getOrders({ dateFrom: fromStr, dateTo: toStr });
     const conversations = await dixaService.getConversations({ dateFrom: fromStr, dateTo: toStr });
-    
-    // Define all stores
+
     const stores = [
       'smartwatchbanden.NL',
       'phone-factory.NL',
@@ -48,47 +44,34 @@ router.get('/', async (req, res) => {
       'smartwatch-straps.co.UK',
       'XoXoWildhearts.com'
     ];
-    
-    // Calculate metrics per store
+
     const storeMetrics = {};
-    
+
     stores.forEach(store => {
-      // Filter orders for this store
       const storeOrders = orders.filter(o => {
-        // Orders have tags field with store name
         return o.tags && o.tags.some(t => t.toLowerCase().includes(store.toLowerCase()));
-      };
-    
-    // CACHE THE RESULT FOR 5 MINUTES
-    cacheService.set(cacheKey, result);
-    
-    res.json(result);
-      
-      // Filter conversations for this store
+      });
+
       const storeConversations = conversations.filter(c => {
         return c.tags && c.tags.some(t => t.toLowerCase().includes(store.toLowerCase()));
       });
-      
-      // Calculate metrics
+
       const totalOrders = storeOrders.length;
       const totalTickets = storeConversations.length;
       const contactRate = totalOrders > 0 ? ((totalTickets / totalOrders) * 100).toFixed(1) : 0;
-      
-      // Calculate FCR per store
+
       const closedTickets = storeConversations.filter(c => c.status === 'closed').length;
       const fcr = totalTickets > 0 ? ((closedTickets / totalTickets) * 100).toFixed(1) : 0;
-      
-      // Calculate AHT per store
+
       const totalAhtSeconds = storeConversations.reduce((sum, c) => {
         return sum + (c.exports_handling_duration || 0);
       }, 0);
       const ahtSeconds = totalTickets > 0 ? Math.round(totalAhtSeconds / totalTickets) : 0;
       const ahtFormatted = formatSeconds(ahtSeconds);
-      
-      // Calculate SLA per store (assume all closed = met SLA for now)
+
       const slaMetCount = storeConversations.filter(c => c.status === 'closed').length;
       const slaPercentage = totalTickets > 0 ? ((slaMetCount / totalTickets) * 100).toFixed(1) : 0;
-      
+
       storeMetrics[store] = {
         store: store,
         orders: totalOrders,
@@ -100,7 +83,7 @@ router.get('/', async (req, res) => {
         sla: parseFloat(slaPercentage),
       };
     });
-    
+
     const result = {
       success: true,
       data: {
@@ -115,9 +98,13 @@ router.get('/', async (req, res) => {
           cache_status: 'FRESH - newly fetched, will cache for 5 minutes',
         },
       },
-    });
+    };
+
+    cacheService.set(cacheKey, result);
+    res.json(result);
+
   } catch (error) {
-    console.error('❌ Error in /store-comparison:', error);
+    console.error('Error in /store-comparison:', error);
     res.status(500).json({
       success: false,
       error: error.message,
