@@ -3,12 +3,11 @@ require('dotenv').config();
 const countryMapper = require('./country-mapper.service');
 
 const config = {
-  apiKey: process.env.SHOPIFY_API_KEY,
-  apiPassword: process.env.SHOPIFY_API_PASSWORD,
+  accessToken: process.env.SHOPIFY_API_PASSWORD,
   shopName: process.env.SHOPIFY_SHOP_NAME,
 };
 
-if (!config.apiKey || !config.apiPassword || !config.shopName) {
+if (!config.accessToken || !config.shopName) {
   console.warn('⚠️ Shopify credentials incomplete');
 }
 
@@ -16,10 +15,8 @@ async function getOrdersViaREST(filters = {}) {
   const { dateFrom, dateTo } = filters;
 
   try {
-    // Use Shopify REST API with Basic Auth
     const baseUrl = `https://${config.shopName}/admin/api/2024-01`;
     const ordersUrl = `${baseUrl}/orders.json`;
-
     const createdAtMin = new Date(dateFrom).toISOString();
     const createdAtMax = new Date(dateTo).toISOString();
 
@@ -32,24 +29,19 @@ async function getOrdersViaREST(filters = {}) {
         limit: 250,
         status: 'any',
       },
-      auth: {
-        username: config.apiKey,
-        password: config.apiPassword,
-      },
-      timeout: 15000,
       headers: {
+        'X-Shopify-Access-Token': config.accessToken,
         'Content-Type': 'application/json',
       },
+      timeout: 15000,
     });
 
     const orders = response.data.orders || [];
     console.log(`✅ Got ${orders.length} orders from Shopify REST`);
 
-    // ENRICH ORDERS WITH MARKET TAGS BASED ON COUNTRY
     return orders.map((order) => {
       const countryCode = order.shipping_address?.country_code || order.billing_address?.country_code;
       const market = countryMapper.mapCountryToMarket(countryCode);
-
       return {
         shopify_order_id: order.id,
         order_date: order.created_at,
@@ -58,11 +50,12 @@ async function getOrdersViaREST(filters = {}) {
         product_count: order.line_items?.length || 0,
         total_price: parseFloat(order.total_price),
         country_code: countryCode,
-        market_tag: market, // ← MAPPED FROM COUNTRY!
-        tags: [market], // For OTC calculation
+        market_tag: market,
+        tags: [market],
         source: 'shopify-rest',
       };
     });
+
   } catch (error) {
     console.warn(`⚠️ Shopify REST failed: ${error.message}`);
     return [];
@@ -75,6 +68,4 @@ function truncateToHour(isoDate) {
   return date.toISOString();
 }
 
-module.exports = {
-  getOrdersViaREST,
-};
+module.exports = { getOrdersViaREST };
