@@ -2,7 +2,7 @@ const axios = require('axios');
 require('dotenv').config();
 
 const config = {
-  apiUrl: 'https://dev.dixa.io/v1',
+  apiUrl: 'https://exports.dixa.io/v1',
   apiKey: process.env.DIXA_API_KEY || process.env.DIXA_API_TOKEN,
 };
 
@@ -13,44 +13,41 @@ if (!config.apiKey) {
 async function getConversations(filters = {}) {
   const { dateFrom, dateTo } = filters;
 
-  if (!config.apiKey) {
-    throw new Error('Dixa API key not configured.');
-  }
+  if (!config.apiKey) throw new Error('Dixa API key not configured.');
 
-  console.log(`Dixa: Fetching conversations from ${dateFrom} to ${dateTo}`);
+  const createdAfter = dateFrom.split('T')[0];
+  const createdBefore = dateTo.split('T')[0];
 
-  const response = await axios.post(
-    `${config.apiUrl}/search/conversations`,
+  console.log(`Dixa: Fetching conversations from ${createdAfter} to ${createdBefore}`);
+
+  const response = await axios.get(
+    `${config.apiUrl}/conversation_export`,
     {
-      filter: {
-        createdAfter: new Date(dateFrom).toISOString(),
-        createdBefore: new Date(dateTo).toISOString(),
-      }
-    },
-    {
+      params: { created_after: createdAfter, created_before: createdBefore },
       headers: {
-        'Authorization': `Bearer ${config.apiKey}`,
+        'Authorization': `bearer ${config.apiKey}`,
         'Content-Type': 'application/json',
       },
-      timeout: 15000,
+      timeout: 30000,
     }
   );
 
-  const conversations = response.data.data || [];
+  const conversations = response.data || [];
   console.log(`Dixa: Retrieved ${conversations.length} conversations`);
 
   return conversations.map((conv) => ({
     dixa_conversation_id: conv.id,
-    conversation_date: conv.createdAt,
-    conversation_hour: truncateToHour(conv.createdAt),
-    customer_email: conv.requesterEmail || 'unknown',
-    message_count: conv.messageCount || 0,
+    conversation_date: new Date(conv.created_at).toISOString(),
+    conversation_hour: truncateToHour(new Date(conv.created_at).toISOString()),
+    customer_email: conv.requester_email || 'unknown',
+    message_count: 1,
     status: conv.status || 'unknown',
-    reopened: conv.reopened || false,
+    reopened: false,
     tags: conv.tags || [],
-    exports_handling_duration: conv.handlingTime || null,
-    exports_first_response_time: conv.firstResponseTime || null,
-    source: 'dixa_live',
+    queue_name: conv.queue_name || null,
+    exports_handling_duration: conv.handling_duration || null,
+    exports_first_response_time: conv.exports_first_response_time || null,
+    source: 'dixa_exports',
   }));
 }
 
