@@ -8,20 +8,13 @@ const config = {
 
 if (!config.apiKey) { console.warn('WARNING: Dixa API credentials missing'); }
 
-// Queues die worden uitgesloten van OTC berekening
-const EXCLUDED_QUEUE_PATTERNS = [
-  'review',        // alle reviews queues
-  'margot',        // manager margot
-  'etrusted',      // etrusted automation
-  'invoices',      // facturen van partners
-  'payments',      // betalingen partners
-  'bills',         // rekeningen partners
-];
+// Queues uitsluiten die niet order-gerelateerd zijn
+const EXCLUDED_QUEUE_PATTERNS = ['review', 'margot', 'etrusted', 'invoice', 'payment', 'bill', 'spam'];
 
 function isExcludedQueue(queueName) {
   if (!queueName) return false;
   const lower = queueName.toLowerCase();
-  return EXCLUDED_QUEUE_PATTERNS.some(pattern => lower.includes(pattern));
+  return EXCLUDED_QUEUE_PATTERNS.some(p => lower.includes(p));
 }
 
 async function getConversations(filters = {}) {
@@ -36,10 +29,7 @@ async function getConversations(filters = {}) {
     `${config.apiUrl}/conversation_export`,
     {
       params: { created_after: createdAfter, created_before: createdBefore },
-      headers: {
-        'Authorization': `bearer ${config.apiKey}`,
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Authorization': `bearer ${config.apiKey}`, 'Content-Type': 'application/json' },
       timeout: 30000,
     }
   );
@@ -65,10 +55,8 @@ async function getConversations(filters = {}) {
     source: 'dixa_exports',
   }));
 
-  // Filter exclusions voor OTC berekening
   const filtered = mapped.filter(c => !isExcludedQueue(c.queue_name));
-  const excluded = mapped.length - filtered.length;
-  console.log(`Dixa: ${filtered.length} conversations na queue filter (${excluded} uitgesloten)`);
+  console.log(`Dixa: ${filtered.length} na filter (${mapped.length - filtered.length} uitgesloten)`);
 
   return filtered;
 }
