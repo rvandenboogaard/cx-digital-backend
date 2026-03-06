@@ -27,6 +27,7 @@ function calculateC1CategoryPerformance(conversations) {
         fcr_count: 0,
         aht_seconds_total: 0,
         ast_seconds_total: 0,
+        ast_count: 0,
         sla_met: 0,
         conversations: [],
       };
@@ -39,20 +40,26 @@ function calculateC1CategoryPerformance(conversations) {
       categoryMap[c1].fcr_count += 1;
     }
 
-    // AHT
+    // AHT: exports_handling_duration in seconden
     if (conv.exports_handling_duration) {
       categoryMap[c1].aht_seconds_total += conv.exports_handling_duration;
     }
 
-    // AST
+    // AST: tijd tussen aanmaken en assignen (Unix ms → seconden)
     if (conv.assigned_at && conv.created_at) {
       const ast = (conv.assigned_at - conv.created_at) / 1000;
-      categoryMap[c1].ast_seconds_total += Math.max(0, ast);
+      if (ast >= 0) {
+        categoryMap[c1].ast_seconds_total += ast;
+        categoryMap[c1].ast_count += 1;
+      }
     }
 
-    // SLA: closed binnen 24u (total_duration < 86400 seconden)
-    if (conv.status === 'closed' && conv.total_duration && conv.total_duration < 86400) {
-      categoryMap[c1].sla_met += 1;
+    // SLA: closed binnen 24u (total_duration in ms)
+    if (conv.status === 'closed' && conv.total_duration) {
+      const durationSeconds = conv.total_duration / 1000;
+      if (durationSeconds < 86400) {
+        categoryMap[c1].sla_met += 1;
+      }
     }
 
     categoryMap[c1].conversations.push(conv);
@@ -61,9 +68,7 @@ function calculateC1CategoryPerformance(conversations) {
   const categories = Object.values(categoryMap).map(cat => {
     const fcr_percentage = cat.tickets > 0 ? ((cat.fcr_count / cat.tickets) * 100).toFixed(1) : 0;
     const aht_seconds = cat.tickets > 0 ? Math.round(cat.aht_seconds_total / cat.tickets) : 0;
-    const ast_seconds = cat.conversations.filter(c => c.assigned_at).length > 0
-      ? Math.round(cat.ast_seconds_total / cat.conversations.filter(c => c.assigned_at).length)
-      : 0;
+    const ast_seconds = cat.ast_count > 0 ? Math.round(cat.ast_seconds_total / cat.ast_count) : 0;
     const sla_percentage = cat.tickets > 0 ? ((cat.sla_met / cat.tickets) * 100).toFixed(1) : 0;
 
     return {
@@ -71,9 +76,9 @@ function calculateC1CategoryPerformance(conversations) {
       tickets: cat.tickets,
       fcr: parseFloat(fcr_percentage),
       aht_seconds: aht_seconds,
-      aht_formatted: formatSeconds(aht_seconds),
+      aht_formatted: formatDuration(aht_seconds),
       ast_seconds: ast_seconds,
-      ast_formatted: formatSeconds(ast_seconds),
+      ast_formatted: formatHours(ast_seconds),
       sla: parseFloat(sla_percentage),
       fcr_count: cat.fcr_count,
       sla_met: cat.sla_met,
@@ -97,19 +102,25 @@ function calculateC1CategoryPerformance(conversations) {
       total_tickets: totalTickets,
       avg_fcr: parseFloat(avgFcr),
       avg_aht_seconds: avgAht,
-      avg_aht_formatted: formatSeconds(avgAht),
+      avg_aht_formatted: formatDuration(avgAht),
       avg_ast_seconds: avgAst,
-      avg_ast_formatted: formatSeconds(avgAst),
+      avg_ast_formatted: formatHours(avgAst),
       data_source: 'dixa_exports_api',
     },
   };
 }
 
-function formatSeconds(seconds) {
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
+// AHT: minuten:seconden formaat
+function formatDuration(seconds) {
+  const minutes = Math.floor(seconds / 60);
   const secs = seconds % 60;
-  return `${hours}h ${String(minutes).padStart(2, '0')}m ${String(secs).padStart(2, '0')}s`;
+  return `${minutes}:${String(secs).padStart(2, '0')}`;
 }
 
-module.exports = { calculateC1CategoryPerformance, formatSeconds };
+// AST: uren formaat
+function formatHours(seconds) {
+  const hours = (seconds / 3600).toFixed(1);
+  return `${hours}h`;
+}
+
+module.exports = { calculateC1CategoryPerformance, formatDuration, formatHours };
