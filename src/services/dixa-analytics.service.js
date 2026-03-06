@@ -26,7 +26,7 @@ async function getFCR(periodType = 'PreviousWeek') {
           Authorization: `bearer ${config.apiKey}`,
           'Content-Type': 'application/json',
         },
-        timeout: 15000,
+        timeout: 5000,
       }
     );
 
@@ -36,7 +36,7 @@ async function getFCR(periodType = 'PreviousWeek') {
     console.log(`📊 Dixa Analytics FCR result: ${fcrValue}`);
     return fcrValue !== null ? Math.round(fcrValue * 10) / 10 : null;
   } catch (error) {
-    console.warn(`⚠️ Dixa Analytics FCR failed: ${error.message}`);
+    console.warn(`⚠️ Dixa Analytics FCR failed: ${error.message} | code: ${error.code}`);
     return null;
   }
 }
