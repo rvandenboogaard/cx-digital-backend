@@ -29,7 +29,11 @@ router.get('/summary', async (req, res) => {
     // Get conversations
     const conversations = await dixaService.getConversations(filters);
 
-    // Calculate C1 metrics (FCR, AHT, SLA)
+    // FCR via Dixa Analytics API (meest betrouwbaar)
+    const dixaAnalyticsService = require('../services/dixa-analytics.service');
+    const fcrFromDixa = await dixaAnalyticsService.getFCR('PreviousWeek');
+
+    // AHT + SLA via C1 berekening
     const c1CategoryService = require('../services/c1-category.service');
     const c1Result = c1CategoryService.calculateC1CategoryPerformance(conversations);
 
@@ -50,7 +54,7 @@ router.get('/summary', async (req, res) => {
           avg_messages_per_conversation: totalConversations > 0
             ? (conversations.reduce((sum, c) => sum + c.message_count, 0) / totalConversations).toFixed(1)
             : 0,
-          avg_fcr: c1Result.summary.avg_fcr || 0,
+          avg_fcr: fcrFromDixa !== null ? fcrFromDixa : (c1Result.summary.avg_fcr || 0),
           avg_aht_seconds: c1Result.summary.avg_aht_seconds || 0,
           avg_aht_formatted: c1Result.summary.avg_aht_formatted || '0:00',
           avg_ast_seconds: c1Result.summary.avg_ast_seconds || 0,
@@ -77,7 +81,13 @@ router.get('/trend', async (req, res) => {
     const tags = tag ? tag.split(',').map(t => t.trim()) : [];
     const filters = { dateFrom, dateTo, tags };
 
-    const orders = await shopifyService.getOrders(filters);
+    let orders;
+    try {
+      orders = await shopifyRESTService.getOrdersViaREST(filters);
+    } catch (err) {
+      console.warn('Shopify REST failed in trend:', err.message);
+      orders = [];
+    }
     const conversations = await dixaService.getConversations(filters);
 
     const hourlyTrend = {};
@@ -104,11 +114,7 @@ router.get('/trend', async (req, res) => {
     res.json({
       success: true,
       data_source: 'live',
-      data: {
-        period: { from: dateFrom, to: dateTo },
-        tag: tag || 'all',
-        trend,
-      },
+      data: { period: { from: dateFrom, to: dateTo }, tag: tag || 'all', trend },
     });
   } catch (error) {
     res.status(500).json({ error: error.message, data_source: 'error' });
@@ -163,7 +169,15 @@ router.get('/stores', async (req, res) => {
     const dateTo = new Date(date_to).toISOString();
     const filters = { dateFrom, dateTo, tags: [] };
 
-    const orders = await shopifyService.getOrders(filters);
+    // REST API gebruiken (niet GraphQL)
+    let orders;
+    try {
+      orders = await shopifyRESTService.getOrdersViaREST(filters);
+    } catch (err) {
+      console.warn('Shopify REST failed in stores:', err.message);
+      orders = [];
+    }
+
     const conversations = await dixaService.getConversations(filters);
 
     const allMarkets = [
