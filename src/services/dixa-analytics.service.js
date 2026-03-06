@@ -8,6 +8,7 @@ const config = {
 
 async function getFCR(periodType = 'PreviousWeek') {
   try {
+    console.log(`📊 Dixa Analytics: fetching FCR (${periodType}), apiKey present: ${!!config.apiKey}`);
     const response = await axios.post(
       `${config.apiUrl}/analytics/metrics`,
       {
@@ -30,8 +31,10 @@ async function getFCR(periodType = 'PreviousWeek') {
     );
 
     const aggregates = response.data?.data?.aggregates || [];
-    const fcrValue = aggregates.find(a => a.measure === 'Percentage')?.value || 0;
-    return Math.round(fcrValue * 10) / 10;
+    console.log(`📊 Dixa Analytics FCR aggregates: ${JSON.stringify(aggregates)}`);
+    const fcrValue = aggregates.find(a => a.measure === 'Percentage')?.value ?? null;
+    console.log(`📊 Dixa Analytics FCR result: ${fcrValue}`);
+    return fcrValue !== null ? Math.round(fcrValue * 10) / 10 : null;
   } catch (error) {
     console.warn(`⚠️ Dixa Analytics FCR failed: ${error.message}`);
     return null;
