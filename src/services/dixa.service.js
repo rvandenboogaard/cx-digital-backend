@@ -11,7 +11,7 @@ if (!config.apiKey) { console.warn('WARNING: Dixa API credentials missing'); }
 // Queues uitsluiten die niet order-gerelateerd zijn
 const EXCLUDED_QUEUE_PATTERNS = ['review', 'margot', 'etrusted', 'invoice', 'payment', 'bill', 'spam', 'trustpilot'];
 function isExcludedQueue(queueName) {
-  if (!queueName) return false;
+  if (!queueName) return true; // geen queue = uitsluiten
   const lower = queueName.toLowerCase();
   return EXCLUDED_QUEUE_PATTERNS.some(p => lower.includes(p));
 }
