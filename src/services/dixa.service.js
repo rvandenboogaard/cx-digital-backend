@@ -42,11 +42,14 @@ async function getConversations(filters = {}) {
     customer_email: conv.requester_email || 'unknown',
     message_count: 1,
     status: conv.status || 'unknown',
-    reopened: false,
+    reopened: conv.status === 'open' && conv.closed_at !== null, // heropend als ooit gesloten maar nu open
     tags: conv.tags || [],
     queue_name: conv.queue_name || null,
-    exports_handling_duration: conv.handling_duration || null,
+    assigned_at: conv.assigned_at || null,           // Unix ms — voor AST berekening
+    created_at: conv.created_at || null,             // Unix ms — voor AST berekening
+    exports_handling_duration: conv.exports_handling_duration || null,  // fix: was handling_duration
     exports_first_response_time: conv.exports_first_response_time || null,
+    total_duration: conv.total_duration || null,
     source: 'dixa_exports',
   }));
 }
