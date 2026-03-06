@@ -77,13 +77,32 @@ router.get('/trend', async (req, res) => {
     catch (err) { console.warn('Shopify REST failed in trend:', err.message); orders = []; }
 
     const conversations = await dixaService.getConversations(filters);
-    const hourlyTrend = {};
+
+    // Aggregeer per dag
+    const dailyTrend = {};
 
     orders.forEach(o => {
-      const hour = o.order_hour;
-      if (!hourlyTrend[hour]) hourlyTrend[hour] = { orders: 0, conversations: 0, otc_ratio: 0 };
-      hourlyTrend[hour].orders += 1;
+      const day = o.order_date.substring(0, 10);
+      if (!dailyTrend[day]) dailyTrend[day] = { orders: 0, conversations: 0, otc_ratio: 0 };
+      dailyTrend[day].orders += 1;
     });
+
+    conversations.forEach(c => {
+      const day = c.conversation_date.substring(0, 10);
+      if (!dailyTrend[day]) dailyTrend[day] = { orders: 0, conversations: 0, otc_ratio: 0 };
+      dailyTrend[day].conversations += 1;
+    });
+
+    Object.keys(dailyTrend).forEach(day => {
+      const d = dailyTrend[day];
+      d.otc_ratio = d.orders > 0 ? ((d.conversations / d.orders) * 100).toFixed(2) : 0;
+    });
+
+    const trend = Object.keys(dailyTrend).sort().map(day => ({ hour: day, ...dailyTrend[day] }));
+
+    res.json({ success: true, data_source: 'live', data: { period: { from: dateFrom, to: dateTo }, tag: tag || 'all', trend } });
+  } catch (error) { res.status(500).json({ error: error.message, data_source: 'error' }); }
+});
     conversations.forEach(c => {
       const hour = c.conversation_hour;
       if (!hourlyTrend[hour]) hourlyTrend[hour] = { orders: 0, conversations: 0, otc_ratio: 0 };
