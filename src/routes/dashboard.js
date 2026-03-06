@@ -24,33 +24,23 @@ router.get('/summary', async (req, res) => {
     const dateTo = new Date(date_to).toISOString();
     const tags = tag ? tag.split(',').map(t => t.trim()) : [];
     const filters = { dateFrom, dateTo, tags };
-
     let orders;
     try { orders = await shopifyRESTService.getOrdersViaREST(filters); }
     catch (err) { console.warn('Shopify REST failed:', err.message); orders = await shopifyService.getOrders(filters); }
-
     const conversations = await dixaService.getConversations(filters);
     const dixaAnalyticsService = require('../services/dixa-analytics.service');
     const fcrFromDixa = await dixaAnalyticsService.getFCR('PreviousWeek');
     const c1CategoryService = require('../services/c1-category.service');
     const c1Result = c1CategoryService.calculateC1CategoryPerformance(conversations);
-
     const totalOrders = orders.length;
     const totalConversations = conversations.length;
     const otcRatio = totalOrders > 0 ? ((totalConversations / totalOrders) * 100).toFixed(2) : 0;
-
     res.json({
-      success: true,
-      data_source: 'live',
-      data: {
-        period: { from: dateFrom, to: dateTo },
-        tag: tag || 'all',
+      success: true, data_source: 'live', data: {
+        period: { from: dateFrom, to: dateTo }, tag: tag || 'all',
         metrics: {
-          total_orders: totalOrders,
-          total_conversations: totalConversations,
-          otc_ratio: parseFloat(otcRatio),
-          avg_messages_per_conversation: totalConversations > 0
-            ? (conversations.reduce((sum, c) => sum + c.message_count, 0) / totalConversations).toFixed(1) : 0,
+          total_orders: totalOrders, total_conversations: totalConversations, otc_ratio: parseFloat(otcRatio),
+          avg_messages_per_conversation: totalConversations > 0 ? (conversations.reduce((sum, c) => sum + c.message_count, 0) / totalConversations).toFixed(1) : 0,
           avg_fcr: fcrFromDixa !== null ? fcrFromDixa : (c1Result.summary.avg_fcr || 0),
           avg_aht_seconds: c1Result.summary.avg_aht_seconds || 0,
           avg_aht_formatted: c1Result.summary.avg_aht_formatted || '0:00',
@@ -71,49 +61,26 @@ router.get('/trend', async (req, res) => {
     const dateTo = new Date(date_to).toISOString();
     const tags = tag ? tag.split(',').map(t => t.trim()) : [];
     const filters = { dateFrom, dateTo, tags };
-
     let orders;
     try { orders = await shopifyRESTService.getOrdersViaREST(filters); }
     catch (err) { console.warn('Shopify REST failed in trend:', err.message); orders = []; }
-
     const conversations = await dixaService.getConversations(filters);
-
-    // Aggregeer per dag
     const dailyTrend = {};
-
     orders.forEach(o => {
       const day = o.order_date.substring(0, 10);
       if (!dailyTrend[day]) dailyTrend[day] = { orders: 0, conversations: 0, otc_ratio: 0 };
       dailyTrend[day].orders += 1;
     });
-
     conversations.forEach(c => {
       const day = c.conversation_date.substring(0, 10);
       if (!dailyTrend[day]) dailyTrend[day] = { orders: 0, conversations: 0, otc_ratio: 0 };
       dailyTrend[day].conversations += 1;
     });
-
     Object.keys(dailyTrend).forEach(day => {
       const d = dailyTrend[day];
       d.otc_ratio = d.orders > 0 ? ((d.conversations / d.orders) * 100).toFixed(2) : 0;
     });
-
     const trend = Object.keys(dailyTrend).sort().map(day => ({ hour: day, ...dailyTrend[day] }));
-
-    res.json({ success: true, data_source: 'live', data: { period: { from: dateFrom, to: dateTo }, tag: tag || 'all', trend } });
-  } catch (error) { res.status(500).json({ error: error.message, data_source: 'error' }); }
-});
-    conversations.forEach(c => {
-      const hour = c.conversation_hour;
-      if (!hourlyTrend[hour]) hourlyTrend[hour] = { orders: 0, conversations: 0, otc_ratio: 0 };
-      hourlyTrend[hour].conversations += 1;
-    });
-    Object.keys(hourlyTrend).forEach(hour => {
-      const d = hourlyTrend[hour];
-      d.otc_ratio = d.orders > 0 ? ((d.conversations / d.orders) * 100).toFixed(2) : 0;
-    });
-
-    const trend = Object.keys(hourlyTrend).sort().map(hour => ({ hour, ...hourlyTrend[hour] }));
     res.json({ success: true, data_source: 'live', data: { period: { from: dateFrom, to: dateTo }, tag: tag || 'all', trend } });
   } catch (error) { res.status(500).json({ error: error.message, data_source: 'error' }); }
 });
@@ -125,11 +92,7 @@ router.get('/backlog', async (req, res) => {
     const dateTo = new Date().toISOString();
     const tags = tag ? tag.split(',').map(t => t.trim()) : [];
     const conversations = await dixaService.getConversations({ dateFrom, dateTo, tags });
-    const backlog = conversations
-      .filter(c => c.message_count > 5)
-      .sort((a, b) => b.message_count - a.message_count)
-      .slice(0, 10)
-      .map(c => ({ id: c.dixa_conversation_id, customer: c.customer_email, messages: c.message_count, priority: c.message_count > 8 ? 'high' : 'medium' }));
+    const backlog = conversations.filter(c => c.message_count > 5).sort((a, b) => b.message_count - a.message_count).slice(0, 10).map(c => ({ id: c.dixa_conversation_id, customer: c.customer_email, messages: c.message_count, priority: c.message_count > 8 ? 'high' : 'medium' }));
     res.json({ success: true, data_source: 'live', data: { total_backlog: backlog.length, high_priority: backlog.filter(b => b.priority === 'high').length, backlog } });
   } catch (error) { res.status(500).json({ error: error.message, data_source: 'error' }); }
 });
@@ -141,35 +104,16 @@ router.get('/stores', async (req, res) => {
     const dateFrom = new Date(date_from).toISOString();
     const dateTo = new Date(date_to).toISOString();
     const filters = { dateFrom, dateTo, tags: [] };
-
     let orders;
-    try {
-      orders = await shopifyRESTService.getOrdersViaREST(filters);
-      console.log(`Stores: got ${orders.length} orders from Shopify REST`);
-    } catch (err) {
-      console.warn('Shopify REST failed in stores:', err.message);
-      orders = [];
-    }
-
+    try { orders = await shopifyRESTService.getOrdersViaREST(filters); console.log(`Stores: got ${orders.length} orders`); }
+    catch (err) { console.warn('Shopify REST failed in stores:', err.message); orders = []; }
     const conversations = await dixaService.getConversations(filters);
-    console.log(`Stores: got ${conversations.length} conversations from Dixa`);
-
     const markets = {};
     Object.entries(MARKET_MAP).forEach(([domain, config]) => {
       const marketOrders = orders.filter(o => o.market_tag === config.tag);
-      const marketConversations = conversations.filter(c =>
-        c.tags && c.tags.some(t => config.dixaTags.includes(t.toLowerCase()))
-      );
-      markets[domain] = {
-        orders: marketOrders.length,
-        conversations: marketConversations.length,
-        otc_ratio: marketOrders.length > 0
-          ? ((marketConversations.length / marketOrders.length) * 100).toFixed(2) : 0,
-        country: config.country,
-      };
+      const marketConversations = conversations.filter(c => c.tags && c.tags.some(t => config.dixaTags.includes(t.toLowerCase())));
+      markets[domain] = { orders: marketOrders.length, conversations: marketConversations.length, otc_ratio: marketOrders.length > 0 ? ((marketConversations.length / marketOrders.length) * 100).toFixed(2) : 0, country: config.country };
     });
-
-    console.log('Stores result:', JSON.stringify(markets));
     res.json({ success: true, data_source: 'live', data: { period: { from: dateFrom, to: dateTo }, stores: markets } });
   } catch (error) { res.status(500).json({ error: error.message, data_source: 'error' }); }
 });
@@ -181,9 +125,7 @@ router.get('/c1-categories', async (req, res) => {
     const dateFrom = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
     const dateTo = new Date().toISOString();
     const conversations = await backlogService.getConversationsFromExports(new Date(dateFrom), new Date(dateTo));
-    if (!conversations || conversations.length === 0) {
-      return res.json({ success: true, data: { categories: [], summary: { total_tickets: 0, avg_fcr: 0, avg_aht_seconds: 0, avg_ast_seconds: 0 } } });
-    }
+    if (!conversations || conversations.length === 0) return res.json({ success: true, data: { categories: [], summary: { total_tickets: 0, avg_fcr: 0, avg_aht_seconds: 0, avg_ast_seconds: 0 } } });
     const result = c1CategoryService.calculateC1CategoryPerformance(conversations);
     res.json({ success: true, data_source: 'live', data: result, period: { from: dateFrom.split('T')[0], to: dateTo.split('T')[0] } });
   } catch (error) { res.status(500).json({ success: false, error: error.message, data_source: 'error' }); }
@@ -196,9 +138,7 @@ router.get('/sla-performance', async (req, res) => {
     const dateFrom = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
     const dateTo = new Date().toISOString();
     const conversations = await backlogService.getConversationsFromExports(new Date(dateFrom), new Date(dateTo));
-    if (!conversations || conversations.length === 0) {
-      return res.json({ success: true, data: { policies: [], summary: { total_conversations: 0, avg_sla_compliance: 0 } } });
-    }
+    if (!conversations || conversations.length === 0) return res.json({ success: true, data: { policies: [], summary: { total_conversations: 0, avg_sla_compliance: 0 } } });
     const result = slaService.calculateSLAPerformance(conversations);
     res.json({ success: true, data_source: 'live', data: result, period: { from: dateFrom.split('T')[0], to: dateTo.split('T')[0] } });
   } catch (error) { res.status(500).json({ success: false, error: error.message, data_source: 'error' }); }
