@@ -120,4 +120,69 @@ router.get('/stores', async (req, res) => {
     const { date_from, date_to } = req.query;
     if (!date_from || !date_to) return res.status(400).json({ error: 'Missing date_from and date_to' });
     const dateFrom = new Date(date_from).toISOString();
-    const dateTo = new Da
+    const dateTo = new Date(date_to).toISOString();
+    const filters = { dateFrom, dateTo, tags: [] };
+
+    let orders;
+    try {
+      orders = await shopifyRESTService.getOrdersViaREST(filters);
+      console.log(`Stores: got ${orders.length} orders from Shopify REST`);
+    } catch (err) {
+      console.warn('Shopify REST failed in stores:', err.message);
+      orders = [];
+    }
+
+    const conversations = await dixaService.getConversations(filters);
+    console.log(`Stores: got ${conversations.length} conversations from Dixa`);
+
+    const markets = {};
+    Object.entries(MARKET_MAP).forEach(([domain, config]) => {
+      const marketOrders = orders.filter(o => o.market_tag === config.tag);
+      const marketConversations = conversations.filter(c =>
+        c.tags && c.tags.some(t => config.dixaTags.includes(t.toLowerCase()))
+      );
+      markets[domain] = {
+        orders: marketOrders.length,
+        conversations: marketConversations.length,
+        otc_ratio: marketOrders.length > 0
+          ? ((marketConversations.length / marketOrders.length) * 100).toFixed(2) : 0,
+        country: config.country,
+      };
+    });
+
+    console.log('Stores result:', JSON.stringify(markets));
+    res.json({ success: true, data_source: 'live', data: { period: { from: dateFrom, to: dateTo }, stores: markets } });
+  } catch (error) { res.status(500).json({ error: error.message, data_source: 'error' }); }
+});
+
+router.get('/c1-categories', async (req, res) => {
+  try {
+    const c1CategoryService = require('../services/c1-category.service');
+    const backlogService = require('../services/dixa-backlog.service');
+    const dateFrom = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const dateTo = new Date().toISOString();
+    const conversations = await backlogService.getConversationsFromExports(new Date(dateFrom), new Date(dateTo));
+    if (!conversations || conversations.length === 0) {
+      return res.json({ success: true, data: { categories: [], summary: { total_tickets: 0, avg_fcr: 0, avg_aht_seconds: 0, avg_ast_seconds: 0 } } });
+    }
+    const result = c1CategoryService.calculateC1CategoryPerformance(conversations);
+    res.json({ success: true, data_source: 'live', data: result, period: { from: dateFrom.split('T')[0], to: dateTo.split('T')[0] } });
+  } catch (error) { res.status(500).json({ success: false, error: error.message, data_source: 'error' }); }
+});
+
+router.get('/sla-performance', async (req, res) => {
+  try {
+    const slaService = require('../services/sla-performance.service');
+    const backlogService = require('../services/dixa-backlog.service');
+    const dateFrom = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const dateTo = new Date().toISOString();
+    const conversations = await backlogService.getConversationsFromExports(new Date(dateFrom), new Date(dateTo));
+    if (!conversations || conversations.length === 0) {
+      return res.json({ success: true, data: { policies: [], summary: { total_conversations: 0, avg_sla_compliance: 0 } } });
+    }
+    const result = slaService.calculateSLAPerformance(conversations);
+    res.json({ success: true, data_source: 'live', data: result, period: { from: dateFrom.split('T')[0], to: dateTo.split('T')[0] } });
+  } catch (error) { res.status(500).json({ success: false, error: error.message, data_source: 'error' }); }
+});
+
+module.exports = router;
