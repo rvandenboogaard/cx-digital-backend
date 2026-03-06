@@ -25,8 +25,7 @@ async function getOrdersViaREST(filters = {}) {
     do {
       const params = pageInfo
         ? { page_info: pageInfo, limit: 250 }
-        : { created_at_min: createdAtMin, created_at_max: createdAtMax, limit: 250, status: 'any' };
-
+        : { created_at_min: createdAtMin, created_at_max: createdAtMax, limit: 250, status: 'any', order: 'created_at asc' };
       const response = await axios.get(`${baseUrl}/orders.json`, {
         params,
         headers: {
