@@ -9,8 +9,7 @@ const config = {
 if (!config.apiKey) { console.warn('WARNING: Dixa API credentials missing'); }
 
 // Queues uitsluiten die niet order-gerelateerd zijn
-const EXCLUDED_QUEUE_PATTERNS = ['review', 'margot', 'etrusted', 'invoice', 'payment', 'bill', 'spam'];
-
+const EXCLUDED_QUEUE_PATTERNS = ['review', 'margot', 'etrusted', 'invoice', 'payment', 'bill', 'spam', 'trustpilot'];
 function isExcludedQueue(queueName) {
   if (!queueName) return false;
   const lower = queueName.toLowerCase();
