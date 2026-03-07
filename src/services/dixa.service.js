@@ -29,7 +29,7 @@ async function getConversations(filters = {}) {
     {
       params: { created_after: createdAfter, created_before: createdBefore },
       headers: { 'Authorization': `bearer ${config.apiKey}`, 'Content-Type': 'application/json' },
-      timeout: 30000,
+      timeout: 8000,
     }
   );
 
