@@ -43,29 +43,70 @@ router.post('/day', async (req, res) => {
   }
 });
 
-// Backfill: sync meerdere dagen (laatste 3 weken default)
+// Backfill: sync 1 dag, 1 bron per request (past binnen Vercel 10s timeout)
 router.post('/backfill', async (req, res) => {
   try {
-    const { start_date, end_date } = req.body;
+    const { start_date, end_date, source } = req.body;
 
     // Default: laatste 21 dagen
     const endDate = end_date || new Date().toISOString().substring(0, 10);
     const startDefault = new Date();
     startDefault.setDate(startDefault.getDate() - 21);
     const startDate = start_date || startDefault.toISOString().substring(0, 10);
+    // source: 'shopify', 'dixa', of undefined (dan eerst shopify)
+    const syncSource = source || 'shopify';
 
-    console.log(`=== Backfill gestart: ${startDate} tot ${endDate} ===`);
-    const results = await syncService.backfill(startDate, endDate);
+    console.log(`=== Backfill ${syncSource}: ${startDate} tot ${endDate} ===`);
 
-    const totalShopify = results.reduce((sum, r) => sum + (r.shopify?.synced || 0), 0);
-    const totalDixa = results.reduce((sum, r) => sum + (r.dixa?.synced || 0), 0);
+    // Zoek eerste dag die nog niet gesynchroniseerd is voor deze bron
+    const current = new Date(startDate);
+    const end = new Date(endDate);
+    let dateStr = null;
+
+    while (current <= end) {
+      const d = current.toISOString().substring(0, 10);
+      const existing = await db.query(
+        `SELECT 1 FROM sync_log WHERE sync_date = $1 AND source = $2 AND status = 'completed'`,
+        [d, syncSource]
+      );
+      if (existing.rows.length === 0) {
+        dateStr = d;
+        break;
+      }
+      current.setDate(current.getDate() + 1);
+    }
+
+    if (!dateStr) {
+      // Alles is al gesynchroniseerd voor deze bron
+      const nextSource = syncSource === 'shopify' ? 'dixa' : null;
+      return res.json({
+        success: true,
+        source: syncSource,
+        complete: !nextSource,
+        message: `${syncSource} fully synced`,
+        next_source: nextSource,
+      });
+    }
+
+    // Sync 1 dag, 1 bron
+    let result;
+    if (syncSource === 'shopify') {
+      result = await syncService.syncShopifyDay(dateStr);
+    } else {
+      result = await syncService.syncDixaDay(dateStr);
+    }
+
+    // Check of er nog meer dagen zijn
+    const nextDay = new Date(new Date(dateStr).getTime() + 86400000).toISOString().substring(0, 10);
+    const hasMore = nextDay <= endDate;
 
     res.json({
       success: true,
-      period: { from: startDate, to: endDate },
-      days_processed: results.length,
-      totals: { shopify_orders: totalShopify, dixa_conversations: totalDixa },
-      details: results,
+      source: syncSource,
+      date: dateStr,
+      result,
+      complete: !hasMore,
+      next_start_date: hasMore ? nextDay : null,
     });
   } catch (error) {
     console.error('Backfill failed:', error.message);
