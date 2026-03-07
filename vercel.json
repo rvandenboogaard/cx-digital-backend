@@ -1,5 +1,24 @@
 {
   "version": 2,
-  "builds": [{"src": "src/index.js", "use": "@vercel/node"}],
-  "routes": [{"src": "/(.*)", "dest": "src/index.js"}]
+  "builds": [
+    {
+      "src": "src/index.js",
+      "use": "@vercel/node"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "src/index.js"
+    }
+  ],
+  "env": {
+    "NODE_ENV": "production"
+  },
+  "crons": [
+    {
+      "path": "/api/sync/daily",
+      "schedule": "0 6 * * *"
+    }
+  ]
 }
