@@ -240,10 +240,40 @@ function enrichOrderWithQueues(order) {
   };
 }
 
+/**
+ * Map queue name back to market tag
+ * @param {string} queueName - Dixa queue name
+ * @returns {string|null} Market tag or null
+ */
+function getMarketFromQueue(queueName) {
+  if (!queueName) return null;
+  const lower = queueName.toLowerCase();
+
+  for (const [market, config] of Object.entries(QUEUE_CONFIG)) {
+    for (const store of config.stores) {
+      const mailChat = store.channels.mail_chat?.toLowerCase();
+      const bol = store.channels.bol?.toLowerCase();
+      if (mailChat && lower.includes(mailChat.split(' ')[0])) return market;
+      if (bol && lower.includes(bol.split(' ')[0])) return market;
+    }
+  }
+
+  // Fallback: check country codes in queue name
+  if (lower.includes('.nl') || lower.includes('nl ')) return 'SWB';
+  if (lower.includes('.de') || lower.includes('de ')) return 'SWA';
+  if (lower.includes('.fr') || lower.includes('fr ')) return 'BSW';
+  if (lower.includes('.es') || lower.includes('es ')) return 'CSW';
+  if (lower.includes('.uk') || lower.includes('uk ')) return 'SWS';
+  if (lower.includes('xoxo') || lower.includes('wildhearts')) return 'XoXo';
+
+  return null;
+}
+
 module.exports = {
   QUEUE_CONFIG,
   getQueuesForMarket,
   getOTCIncludedQueues,
   getOTCExcludedQueues,
   enrichOrderWithQueues,
+  getMarketFromQueue,
 };

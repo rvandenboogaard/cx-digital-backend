@@ -1,47 +1,58 @@
 const express = require('express');
 const router = express.Router();
+const dashboardDB = require('../services/dashboard-db.service');
+const dbService = require('../services/db.service');
+
+// Fallback imports voor als DB niet beschikbaar is
 const shopifyService = require('../services/shopify.service');
 const shopifyRESTService = require('../services/shopify-rest.service');
 const dixaService = require('../services/dixa.service');
+const c1CategoryService = require('../services/c1-category.service');
 
-const MARKET_MAP = {
-  'smartwatchbanden.nl':     { tag: 'SWB', country: 'NL', dixaTags: ['email-strap-nl', 'chat-strap-nl', 'xx-nl-be'] },
-  'phone-factory.nl':        { tag: 'SWB', country: 'NL', dixaTags: ['email-strap-nl', 'chat-strap-nl', 'xx-nl-be'] },
-  'xoxowildhearts.com':      { tag: 'SWB', country: 'NL', dixaTags: ['email-xo-xo'] },
-  'smartwatcharmbaender.de': { tag: 'SWA', country: 'DE', dixaTags: ['email-strap-de', 'chat-strap-de'] },
-  'huellen-shop.de':         { tag: 'SWA', country: 'DE', dixaTags: ['email-strap-de', 'chat-strap-de'] },
-  'braceletsmartwatch.fr':   { tag: 'BSW', country: 'FR', dixaTags: ['email-strap-fr', 'chat-strap-fr'] },
-  'coque-telephone.fr':      { tag: 'BSW', country: 'FR', dixaTags: ['email-strap-fr', 'chat-strap-fr'] },
-  'correasmartwatch.es':     { tag: 'CSW', country: 'ES', dixaTags: ['email-strap-es'] },
-  'smartwatch-straps.co.uk': { tag: 'SWS', country: 'GB', dixaTags: ['email-strap-uk', 'chat-strap-uk'] },
-};
+// Check of DB beschikbaar is
+async function useDB() {
+  try {
+    return await dbService.isConnected();
+  } catch {
+    return false;
+  }
+}
 
+// === SUMMARY ===
 router.get('/summary', async (req, res) => {
   try {
     const { tag, date_from, date_to } = req.query;
     if (!date_from || !date_to) return res.status(400).json({ error: 'Missing date_from and date_to' });
+
+    // Probeer DB eerst
+    if (await useDB()) {
+      const data = await dashboardDB.getSummary(date_from, date_to, tag || null);
+      return res.json({ success: true, data_source: 'database', data });
+    }
+
+    // Fallback: live API
     const dateFrom = new Date(date_from).toISOString();
     const dateTo = new Date(date_to).toISOString();
-    const tags = tag ? tag.split(',').map(t => t.trim()) : [];
-    const filters = { dateFrom, dateTo, tags };
+    const filters = { dateFrom, dateTo, tags: tag ? tag.split(',').map(t => t.trim()) : [] };
+
     let orders;
     try { orders = await shopifyRESTService.getOrdersViaREST(filters); }
     catch (err) { console.warn('Shopify REST failed:', err.message); orders = await shopifyService.getOrders(filters); }
     const conversations = await dixaService.getConversations(filters);
-    const dixaAnalyticsService = require('../services/dixa-analytics.service');
-    const fcrFromDixa = await dixaAnalyticsService.getFCR('PreviousWeek');
-    const c1CategoryService = require('../services/c1-category.service');
     const c1Result = c1CategoryService.calculateC1CategoryPerformance(conversations);
+
     const totalOrders = orders.length;
     const totalConversations = conversations.length;
     const otcRatio = totalOrders > 0 ? ((totalConversations / totalOrders) * 100).toFixed(2) : 0;
+
     res.json({
       success: true, data_source: 'live', data: {
         period: { from: dateFrom, to: dateTo }, tag: tag || 'all',
         metrics: {
-          total_orders: totalOrders, total_conversations: totalConversations, otc_ratio: parseFloat(otcRatio),
-          avg_messages_per_conversation: totalConversations > 0 ? (conversations.reduce((sum, c) => sum + c.message_count, 0) / totalConversations).toFixed(1) : 0,
-          avg_fcr: fcrFromDixa !== null ? fcrFromDixa : (c1Result.summary.avg_fcr || 0),
+          total_orders: totalOrders, total_conversations: totalConversations,
+          otc_ratio: parseFloat(otcRatio),
+          open_tickets: 0,
+          avg_fcr: c1Result.summary.avg_fcr || 0,
           avg_aht_seconds: c1Result.summary.avg_aht_seconds || 0,
           avg_aht_formatted: c1Result.summary.avg_aht_formatted || '0:00',
           avg_ast_seconds: c1Result.summary.avg_ast_seconds || 0,
@@ -53,18 +64,27 @@ router.get('/summary', async (req, res) => {
   } catch (error) { res.status(500).json({ error: error.message, data_source: 'error' }); }
 });
 
+// === TREND ===
 router.get('/trend', async (req, res) => {
   try {
     const { tag, date_from, date_to } = req.query;
     if (!date_from || !date_to) return res.status(400).json({ error: 'Missing date_from and date_to' });
+
+    if (await useDB()) {
+      const data = await dashboardDB.getTrend(date_from, date_to, tag || null);
+      return res.json({ success: true, data_source: 'database', data });
+    }
+
+    // Fallback: live API
     const dateFrom = new Date(date_from).toISOString();
     const dateTo = new Date(date_to).toISOString();
-    const tags = tag ? tag.split(',').map(t => t.trim()) : [];
-    const filters = { dateFrom, dateTo, tags };
+    const filters = { dateFrom, dateTo, tags: tag ? tag.split(',').map(t => t.trim()) : [] };
+
     let orders;
     try { orders = await shopifyRESTService.getOrdersViaREST(filters); }
-    catch (err) { console.warn('Shopify REST failed in trend:', err.message); orders = []; }
+    catch (err) { orders = []; }
     const conversations = await dixaService.getConversations(filters);
+
     const dailyTrend = {};
     orders.forEach(o => {
       const day = o.order_date.substring(0, 10);
@@ -78,49 +98,101 @@ router.get('/trend', async (req, res) => {
     });
     Object.keys(dailyTrend).forEach(day => {
       const d = dailyTrend[day];
-      d.otc_ratio = d.orders > 0 ? ((d.conversations / d.orders) * 100).toFixed(2) : 0;
+      d.otc_ratio = d.orders > 0 ? parseFloat(((d.conversations / d.orders) * 100).toFixed(2)) : 0;
     });
-    const trend = Object.keys(dailyTrend).sort().map(day => ({ hour: day, ...dailyTrend[day] }));
+
+    const trend = Object.keys(dailyTrend).sort().map(day => ({ day, ...dailyTrend[day] }));
     res.json({ success: true, data_source: 'live', data: { period: { from: dateFrom, to: dateTo }, tag: tag || 'all', trend } });
   } catch (error) { res.status(500).json({ error: error.message, data_source: 'error' }); }
 });
 
-router.get('/backlog', async (req, res) => {
-  try {
-    const { tag } = req.query;
-    const dateFrom = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    const dateTo = new Date().toISOString();
-    const tags = tag ? tag.split(',').map(t => t.trim()) : [];
-    const conversations = await dixaService.getConversations({ dateFrom, dateTo, tags });
-    const backlog = conversations.filter(c => c.message_count > 5).sort((a, b) => b.message_count - a.message_count).slice(0, 10).map(c => ({ id: c.dixa_conversation_id, customer: c.customer_email, messages: c.message_count, priority: c.message_count > 8 ? 'high' : 'medium' }));
-    res.json({ success: true, data_source: 'live', data: { total_backlog: backlog.length, high_priority: backlog.filter(b => b.priority === 'high').length, backlog } });
-  } catch (error) { res.status(500).json({ error: error.message, data_source: 'error' }); }
-});
-
+// === STORES (per market) ===
 router.get('/stores', async (req, res) => {
   try {
     const { date_from, date_to } = req.query;
     if (!date_from || !date_to) return res.status(400).json({ error: 'Missing date_from and date_to' });
-    const dateFrom = new Date(date_from).toISOString();
-    const dateTo = new Date(date_to).toISOString();
-    const filters = { dateFrom, dateTo, tags: [] };
-    let orders;
-    try { orders = await shopifyRESTService.getOrdersViaREST(filters); console.log(`Stores: got ${orders.length} orders`); }
-    catch (err) { console.warn('Shopify REST failed in stores:', err.message); orders = []; }
-    const conversations = await dixaService.getConversations(filters);
-    const markets = {};
-    Object.entries(MARKET_MAP).forEach(([domain, config]) => {
-      const marketOrders = orders.filter(o => o.market_tag === config.tag);
-      const marketConversations = conversations.filter(c => c.tags && c.tags.some(t => config.dixaTags.includes(t.toLowerCase())));
-      markets[domain] = { orders: marketOrders.length, conversations: marketConversations.length, otc_ratio: marketOrders.length > 0 ? ((marketConversations.length / marketOrders.length) * 100).toFixed(2) : 0, country: config.country };
-    });
-    res.json({ success: true, data_source: 'live', data: { period: { from: dateFrom, to: dateTo }, stores: markets } });
+
+    if (await useDB()) {
+      const data = await dashboardDB.getStores(date_from, date_to);
+      return res.json({ success: true, data_source: 'database', data });
+    }
+
+    // Fallback: live API (beperkt)
+    res.json({ success: true, data_source: 'live', data: { period: { from: date_from, to: date_to }, markets: {} } });
   } catch (error) { res.status(500).json({ error: error.message, data_source: 'error' }); }
 });
 
+// === QUEUES ===
+router.get('/queues', async (req, res) => {
+  try {
+    const { tag, date_from, date_to } = req.query;
+    if (!date_from || !date_to) return res.status(400).json({ error: 'Missing date_from and date_to' });
+
+    if (await useDB()) {
+      const data = await dashboardDB.getQueues(date_from, date_to, tag || null);
+      return res.json({ success: true, data_source: 'database', data });
+    }
+
+    res.json({ success: true, data_source: 'live', data: { queues: [] } });
+  } catch (error) { res.status(500).json({ error: error.message, data_source: 'error' }); }
+});
+
+// === BACKLOG (open tickets) ===
+router.get('/backlog', async (req, res) => {
+  try {
+    const { tag } = req.query;
+
+    if (await useDB()) {
+      const marketFilter = tag ? 'AND market_tag = $1' : '';
+      const params = tag ? [tag] : [];
+
+      const result = await dbService.query(
+        `SELECT dixa_conversation_id, customer_email, message_count, queue_name, market_tag, conversation_date
+         FROM conversations
+         WHERE status != 'closed' ${marketFilter}
+         ORDER BY conversation_date DESC
+         LIMIT 50`,
+        params
+      );
+
+      const backlog = result.rows;
+      return res.json({
+        success: true, data_source: 'database',
+        data: {
+          total_backlog: backlog.length,
+          high_priority: backlog.filter(b => b.message_count > 8).length,
+          backlog: backlog.map(b => ({
+            id: b.dixa_conversation_id, customer: b.customer_email,
+            messages: b.message_count, queue: b.queue_name, market: b.market_tag,
+            priority: b.message_count > 8 ? 'high' : 'medium',
+          })),
+        },
+      });
+    }
+
+    // Fallback: live API
+    const dateFrom = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const dateTo = new Date().toISOString();
+    const conversations = await dixaService.getConversations({ dateFrom, dateTo, tags: tag ? [tag] : [] });
+    const backlog = conversations.filter(c => c.status !== 'closed').slice(0, 50);
+    res.json({
+      success: true, data_source: 'live',
+      data: {
+        total_backlog: backlog.length,
+        high_priority: backlog.filter(b => b.message_count > 8).length,
+        backlog: backlog.map(c => ({
+          id: c.dixa_conversation_id, customer: c.customer_email,
+          messages: c.message_count, queue: c.queue_name,
+          priority: c.message_count > 8 ? 'high' : 'medium',
+        })),
+      },
+    });
+  } catch (error) { res.status(500).json({ error: error.message, data_source: 'error' }); }
+});
+
+// === C1 CATEGORIES ===
 router.get('/c1-categories', async (req, res) => {
   try {
-    const c1CategoryService = require('../services/c1-category.service');
     const backlogService = require('../services/dixa-backlog.service');
     const dateFrom = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
     const dateTo = new Date().toISOString();
@@ -131,6 +203,7 @@ router.get('/c1-categories', async (req, res) => {
   } catch (error) { res.status(500).json({ success: false, error: error.message, data_source: 'error' }); }
 });
 
+// === SLA PERFORMANCE ===
 router.get('/sla-performance', async (req, res) => {
   try {
     const slaService = require('../services/sla-performance.service');

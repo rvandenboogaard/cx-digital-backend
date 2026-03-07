@@ -26,11 +26,14 @@ const webhooksRoutes = require('./routes/webhooks');
 const fallbackRoutes = require('./routes/fallback');
 const backlogRoutes = require('./routes/backlog');
 const storeComparisonRoutes = require('./routes/store-comparison');
-//const { syncDixaAndShopifyData } = require('./jobs/hourly-sync');
+const syncRoutes = require('./routes/sync');
+
+const dbService = require('./services/db.service');
 
 // Routes
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+app.get('/health', async (req, res) => {
+  const dbConnected = await dbService.isConnected();
+  res.json({ status: 'ok', timestamp: new Date().toISOString(), database: dbConnected ? 'connected' : 'not configured' });
 });
 
 console.log('✅ Registering API routes...');
@@ -52,24 +55,16 @@ app.use('/api/backlog', backlogRoutes);
 console.log('  ✓ /api/backlog (DIXA EXPORTS API)');
 app.use('/api/store-comparison', storeComparisonRoutes);
 console.log('  ✓ /api/store-comparison (MULTI-STORE METRICS)');
-console.log('✅ All routes registered!\n');
-
-// Manual sync endpoint (for testing)
-// app.post('/api/admin/sync', async (req, res) => {
-// try {
-//    const result = await syncDixaAndShopifyData();
-//    res.json({ success: true, result });
-//  } catch (error) {
-//    res.status(500).json({ error: error.message });
-//  }
-//  });
+app.use('/api/sync', syncRoutes);
+console.log('  ✓ /api/sync (DB SYNC + CRON)');
+console.log('All routes registered!\n');
 
 // Start server
 app.listen(PORT, () => {
   console.log(`\n🚀 CX Digital Backend running on port ${PORT}`);
   console.log(`   Health: http://localhost:${PORT}/api/health`);
   console.log(`   Orders: http://localhost:${PORT}/api/orders?store_id=NL&date_from=2026-02-26&date_to=2026-02-26`);
-  console.log(`   Sync: POST http://localhost:${PORT}/api/admin/sync\n`);
+  console.log(`   Sync: POST http://localhost:${PORT}/api/sync/backfill\n`);
 });
 
 module.exports = app;
