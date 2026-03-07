@@ -1,17 +1,75 @@
 const express = require('express');
+const { getOrders, getMockOrders } = require('../services/shopify.service');
+const { loadStoreCredentials } = require('../config/shopify.config');
+
 const router = express.Router();
-const shopifyService = require('../services/shopify.service');
+
+/**
+ * GET /orders
+ * 
+ * Query params:
+ *   - dateFrom: ISO date (required)
+ *   - dateTo: ISO date (required)
+ *   - useMock: true/false (optional, default: false)
+ * 
+ * Header:
+ *   - X-Store-ID: Store identifier (NL, DE, FR, etc.)
+ * 
+ * Example:
+ *   GET /orders?dateFrom=2024-01-01T00:00:00Z&dateTo=2024-01-31T23:59:59Z
+ *   Header: X-Store-ID: NL
+ */
 router.get('/', async (req, res) => {
   try {
-    const { tag, date_from, date_to, use_mock } = req.query;
-    if (!date_from || !date_to) return res.status(400).json({ error: 'Missing date_from, date_to' });
-    const dateFrom = new Date(date_from).toISOString();
-    const dateTo = new Date(date_to).toISOString();
+    // Get store_id from header
+    const storeId = req.headers['x-store-id'];
+    if (!storeId) {
+      return res.status(400).json({
+        error: 'Missing X-Store-ID header',
+        message: 'Request must include X-Store-ID header (e.g., NL, DE, FR)',
+      });
+    }
+
+    // Get filters from query params
+    const { dateFrom, dateTo, useMock } = req.query;
+    if (!dateFrom || !dateTo) {
+      return res.status(400).json({
+        error: 'Missing required parameters',
+        message: 'dateFrom and dateTo query params are required (ISO format)',
+      });
+    }
+
+    // Load credentials for store
+    const credentials = loadStoreCredentials(storeId);
+
+    // Fetch orders
     const filters = { dateFrom, dateTo };
-    if (tag) filters.tag = tag;
-    const orders = use_mock === 'true' ? await shopifyService.getMockOrders(filters) : await shopifyService.getOrders(filters);
-    const filteredOrders = tag ? orders.filter(o => o.tags && o.tags.includes(tag)) : orders;
-    res.json({ success: true, data: { tag: tag || 'all', total_orders: filteredOrders.length, summary: { total_orders: filteredOrders.length, total_products: filteredOrders.reduce((sum, o) => sum + o.product_count, 0) } } });
-  } catch (error) { res.status(500).json({ error: error.message }); }
+    const orders = useMock === 'true' 
+      ? await getMockOrders(credentials, filters)
+      : await getOrders(credentials, filters);
+
+    // Return
+    res.json({
+      storeId,
+      dateFrom,
+      dateTo,
+      count: orders.length,
+      orders,
+    });
+
+  } catch (error) {
+    console.error('❌ Orders endpoint error:', error.message);
+    
+    // Check if it's a credentials error (400) or API error (500)
+    const statusCode = error.message.includes('Missing') || error.message.includes('not configured') 
+      ? 400 
+      : 500;
+    
+    res.status(statusCode).json({
+      error: 'Failed to fetch orders',
+      message: error.message,
+    });
+  }
 });
+
 module.exports = router;
