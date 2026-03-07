@@ -22,7 +22,7 @@ async function getOrdersForDay(baseUrl, dateFrom, dateTo) {
     const response = await axios.get(`${baseUrl}/orders.json`, {
       params,
       headers: { 'X-Shopify-Access-Token': config.accessToken },
-      timeout: 15000,
+      timeout: 8000,
     });
 
     const orders = response.data.orders || [];
