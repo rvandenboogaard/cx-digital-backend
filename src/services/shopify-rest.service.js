@@ -46,7 +46,7 @@ async function getOrdersForDay(baseUrl, dateFrom, dateTo) {
     pageInfo = nextMatch ? nextMatch[1] : null;
     page++;
 
-  } while (pageInfo && page <= 5);
+  } while (pageInfo && page <= 20);
 
   return allOrders;
 }
