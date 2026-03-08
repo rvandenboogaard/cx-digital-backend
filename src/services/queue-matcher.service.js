@@ -205,10 +205,10 @@ function getOTCExcludedQueues(market) {
     return getOTCExcludedQueues('SWB');
   }
 
+  // 'Reviews (all)' verwijderd: review tickets tellen nu mee in OTC%
   return [
     config.asap_queue,
     'High prio Mails',
-    'Reviews (all)',
     'Manager (Margot) Default',
     'Invoices, payments, bills',
     'Shopify Notifications',

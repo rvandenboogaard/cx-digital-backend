@@ -9,11 +9,21 @@ const config = {
 if (!config.apiKey) { console.warn('WARNING: Dixa API credentials missing'); }
 
 // Queues uitsluiten die niet order-gerelateerd zijn
-const EXCLUDED_QUEUE_PATTERNS = ['review', 'margot', 'etrusted', 'invoice', 'payment', 'bill', 'spam', 'trustpilot'];
+// 'review' verwijderd: review tickets tellen nu mee in OTC%
+const EXCLUDED_QUEUE_PATTERNS = ['margot', 'etrusted', 'invoice', 'payment', 'bill', 'spam', 'trustpilot'];
+
+// Review queue herkenning voor tagging
+const REVIEW_QUEUE_PATTERNS = ['review'];
 function isExcludedQueue(queueName) {
   if (!queueName) return true; // geen queue = uitsluiten
   const lower = queueName.toLowerCase();
   return EXCLUDED_QUEUE_PATTERNS.some(p => lower.includes(p));
+}
+
+function isReviewQueue(queueName) {
+  if (!queueName) return false;
+  const lower = queueName.toLowerCase();
+  return REVIEW_QUEUE_PATTERNS.some(p => lower.includes(p));
 }
 
 async function getConversations(filters = {}) {
@@ -56,6 +66,8 @@ async function getConversations(filters = {}) {
     exports_first_response_time: conv.exports_first_response_time || null,
     total_duration: conv.total_duration || null,
     source: 'dixa_exports',
+    is_review: isReviewQueue(conv.queue_name),
+    ticket_type: isReviewQueue(conv.queue_name) ? 'review' : 'support',
   }));
 
   const filtered = mapped.filter(c => !isExcludedQueue(c.queue_name));
@@ -71,4 +83,4 @@ function truncateToHour(isoDate) {
   return date.toISOString();
 }
 
-module.exports = { getConversations, isExcludedQueue, truncateToHour };
+module.exports = { getConversations, isExcludedQueue, isReviewQueue, truncateToHour };
