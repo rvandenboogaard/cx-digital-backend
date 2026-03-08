@@ -11,7 +11,13 @@ async function syncShopifyDay(date) {
 
   console.log(`Sync Shopify: ${dateStr}`);
 
-  const orders = await shopifyRESTService.getOrdersViaREST({ dateFrom, dateTo });
+  let orders;
+  try {
+    orders = await shopifyRESTService.getOrdersViaREST({ dateFrom, dateTo });
+  } catch (err) {
+    await logSync(dateStr, 'shopify', 0, err.message);
+    return { date: dateStr, synced: 0, error: err.message };
+  }
   if (!orders || orders.length === 0) {
     await logSync(dateStr, 'shopify', 0);
     return { date: dateStr, synced: 0 };
@@ -61,7 +67,13 @@ async function syncDixaDay(date) {
 
   console.log(`Sync Dixa: ${dateStr}`);
 
-  const conversations = await dixaService.getConversations({ dateFrom, dateTo });
+  let conversations;
+  try {
+    conversations = await dixaService.getConversations({ dateFrom, dateTo });
+  } catch (err) {
+    await logSync(dateStr, 'dixa', 0, err.message);
+    return { date: dateStr, synced: 0, error: err.message };
+  }
   if (!conversations || conversations.length === 0) {
     await logSync(dateStr, 'dixa', 0);
     return { date: dateStr, synced: 0 };
@@ -138,13 +150,14 @@ async function syncToday() {
   return { date: today, shopify, dixa };
 }
 
-// Backfill: sync meerdere dagen
-async function backfill(startDate, endDate) {
+// Backfill: sync meerdere dagen (met limiet per request)
+async function backfill(startDate, endDate, dayLimit = 3) {
   const results = [];
   const current = new Date(startDate);
   const end = new Date(endDate);
+  let processed = 0;
 
-  while (current <= end) {
+  while (current <= end && processed < dayLimit) {
     const dateStr = current.toISOString().substring(0, 10);
 
     // Check of deze dag al gesynchroniseerd is
@@ -170,6 +183,10 @@ async function backfill(startDate, endDate) {
 
     results.push(dayResult);
     current.setDate(current.getDate() + 1);
+    // Alleen tellen als er echt data gesynchroniseerd is (niet overgeslagen)
+    if (!dayResult.shopify?.skipped || !dayResult.dixa?.skipped) {
+      processed++;
+    }
   }
 
   return results;

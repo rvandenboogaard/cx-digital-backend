@@ -9,6 +9,8 @@ const config = {
 
 if (!config.accessToken || !config.shopName) { console.warn('⚠️ Shopify credentials incomplete'); }
 
+function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+
 async function getOrdersForDay(baseUrl, dateFrom, dateTo) {
   let allOrders = [];
   let pageInfo = null;
@@ -18,6 +20,9 @@ async function getOrdersForDay(baseUrl, dateFrom, dateTo) {
     const params = pageInfo
       ? { page_info: pageInfo, limit: 250 }
       : { created_at_min: dateFrom, created_at_max: dateTo, limit: 250, status: 'any' };
+
+    // Rate limit: wacht tussen paginated requests
+    if (page > 1) await sleep(600);
 
     const response = await axios.get(`${baseUrl}/orders.json`, {
       params,
@@ -33,7 +38,7 @@ async function getOrdersForDay(baseUrl, dateFrom, dateTo) {
     pageInfo = nextMatch ? nextMatch[1] : null;
     page++;
 
-  } while (pageInfo && page <= 5);
+  } while (pageInfo && page <= 10);
 
   return allOrders;
 }
@@ -84,8 +89,8 @@ async function getOrdersViaREST(filters = {}) {
     });
 
   } catch (error) {
-    console.warn(`⚠️ Shopify REST failed: ${error.message}`);
-    return [];
+    console.error(`Shopify REST FAILED: ${error.message}`, error.response?.status, error.response?.data);
+    throw error;
   }
 }
 
