@@ -149,10 +149,12 @@ router.post('/reset', async (req, res) => {
   try {
     const { source } = req.body;
     if (!source) return res.status(400).json({ error: 'Missing source (shopify/dixa)' });
+
     const result = await db.query(
       `DELETE FROM sync_log WHERE source = $1 AND records_synced = 0`,
       [source]
     );
+
     res.json({
       success: true,
       message: `Deleted ${result.rowCount} empty sync_log entries for ${source}`,
@@ -198,6 +200,7 @@ router.post('/setup', async (req, res) => {
         assigned_at BIGINT,
         created_at BIGINT,
         closed_at BIGINT,
+        initial_channel VARCHAR(50),
         exports_handling_duration NUMERIC,
         exports_first_response_time NUMERIC,
         total_duration BIGINT,
@@ -220,6 +223,9 @@ router.post('/setup', async (req, res) => {
         completed_at TIMESTAMP
       )
     `);
+
+    // Migrations: add columns to existing tables
+    await db.query(`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS initial_channel VARCHAR(50)`).catch(() => {});
 
     // Indexes
     await db.query(`CREATE INDEX IF NOT EXISTS idx_orders_date ON orders(order_date)`);

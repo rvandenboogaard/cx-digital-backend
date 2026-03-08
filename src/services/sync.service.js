@@ -86,13 +86,14 @@ async function syncDixaDay(date) {
       const marketTag = queueMatcher.getMarketFromQueue(conv.queue_name);
 
       await db.query(
-        `INSERT INTO conversations (dixa_conversation_id, conversation_date, conversation_hour, customer_email, message_count, status, reopened, queue_name, tags, assigned_at, created_at, closed_at, exports_handling_duration, exports_first_response_time, total_duration, market_tag, source)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+        `INSERT INTO conversations (dixa_conversation_id, conversation_date, conversation_hour, customer_email, message_count, status, reopened, queue_name, tags, assigned_at, created_at, closed_at, initial_channel, exports_handling_duration, exports_first_response_time, total_duration, market_tag, source)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
          ON CONFLICT (dixa_conversation_id) DO UPDATE SET
            status = EXCLUDED.status,
            reopened = EXCLUDED.reopened,
            message_count = EXCLUDED.message_count,
            closed_at = EXCLUDED.closed_at,
+           initial_channel = EXCLUDED.initial_channel,
            exports_handling_duration = EXCLUDED.exports_handling_duration,
            exports_first_response_time = EXCLUDED.exports_first_response_time,
            total_duration = EXCLUDED.total_duration,
@@ -110,6 +111,7 @@ async function syncDixaDay(date) {
           conv.assigned_at,
           conv.created_at,
           conv.closed_at,
+          conv.initial_channel,
           conv.exports_handling_duration,
           conv.exports_first_response_time,
           conv.total_duration,

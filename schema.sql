@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS conversations (
   assigned_at BIGINT, -- Unix ms
   created_at BIGINT, -- Unix ms
   closed_at BIGINT, -- Unix ms
+  initial_channel VARCHAR(50), -- email, widgetchat, contactform, etc.
   exports_handling_duration NUMERIC, -- seconds
   exports_first_response_time NUMERIC, -- seconds
   total_duration BIGINT, -- ms
