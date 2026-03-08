@@ -28,13 +28,13 @@ async function getOrdersForDay(baseUrl, dateFrom, dateTo) {
       params = { created_at_min: dateFrom, created_at_max: dateTo, limit: 250, status: 'any' };
     }
 
-    // Rate limit: wacht tussen paginated requests
-    if (page > 1) await sleep(600);
+    // Rate limit: wacht tussen paginated requests (Shopify allows 2 req/s)
+    if (page > 1) await sleep(250);
 
     const response = await axios.get(url, {
       params,
       headers: { 'X-Shopify-Access-Token': config.accessToken },
-      timeout: 8000,
+      timeout: 15000,
     });
 
     const orders = response.data.orders || [];

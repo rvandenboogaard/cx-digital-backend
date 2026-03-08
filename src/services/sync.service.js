@@ -23,20 +23,18 @@ async function syncShopifyDay(date) {
     return { date: dateStr, synced: 0 };
   }
 
+  // Batch insert: 100 orders per query voor snelheid (past binnen Vercel timeout)
   let synced = 0;
-  for (const order of orders) {
+  const batchSize = 100;
+  for (let i = 0; i < orders.length; i += batchSize) {
+    const batch = orders.slice(i, i + batchSize);
     try {
-      await db.query(
-        `INSERT INTO orders (shopify_order_id, order_date, order_hour, customer_email, product_count, total_price, country_code, market_tag, source)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-         ON CONFLICT (shopify_order_id) DO UPDATE SET
-           order_date = EXCLUDED.order_date,
-           product_count = EXCLUDED.product_count,
-           total_price = EXCLUDED.total_price,
-           country_code = EXCLUDED.country_code,
-           market_tag = EXCLUDED.market_tag,
-           synced_at = NOW()`,
-        [
+      const values = [];
+      const params = [];
+      batch.forEach((order, idx) => {
+        const offset = idx * 9;
+        values.push(`($${offset+1}, $${offset+2}, $${offset+3}, $${offset+4}, $${offset+5}, $${offset+6}, $${offset+7}, $${offset+8}, $${offset+9})`);
+        params.push(
           order.shopify_order_id,
           dateStr,
           order.order_hour,
@@ -46,11 +44,43 @@ async function syncShopifyDay(date) {
           order.country_code,
           order.market_tag,
           order.source || 'shopify-rest',
-        ]
+        );
+      });
+      await db.query(
+        `INSERT INTO orders (shopify_order_id, order_date, order_hour, customer_email, product_count, total_price, country_code, market_tag, source)
+         VALUES ${values.join(', ')}
+         ON CONFLICT (shopify_order_id) DO UPDATE SET
+           order_date = EXCLUDED.order_date,
+           product_count = EXCLUDED.product_count,
+           total_price = EXCLUDED.total_price,
+           country_code = EXCLUDED.country_code,
+           market_tag = EXCLUDED.market_tag,
+           synced_at = NOW()`,
+        params
       );
-      synced++;
+      synced += batch.length;
     } catch (err) {
-      console.error(`Order insert failed ${order.shopify_order_id}:`, err.message);
+      console.error(`Batch insert failed at offset ${i}:`, err.message);
+      // Fallback: probeer individueel
+      for (const order of batch) {
+        try {
+          await db.query(
+            `INSERT INTO orders (shopify_order_id, order_date, order_hour, customer_email, product_count, total_price, country_code, market_tag, source)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+             ON CONFLICT (shopify_order_id) DO UPDATE SET
+               order_date = EXCLUDED.order_date,
+               product_count = EXCLUDED.product_count,
+               total_price = EXCLUDED.total_price,
+               country_code = EXCLUDED.country_code,
+               market_tag = EXCLUDED.market_tag,
+               synced_at = NOW()`,
+            [order.shopify_order_id, dateStr, order.order_hour, order.customer_email, order.product_count, order.total_price, order.country_code, order.market_tag, order.source || 'shopify-rest']
+          );
+          synced++;
+        } catch (e) {
+          console.error(`Order insert failed ${order.shopify_order_id}:`, e.message);
+        }
+      }
     }
   }
 
