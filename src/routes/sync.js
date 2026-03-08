@@ -144,6 +144,25 @@ router.get('/status', async (req, res) => {
   }
 });
 
+// Reset sync_log entries voor een bron (zodat backfill opnieuw draait)
+router.post('/reset', async (req, res) => {
+  try {
+    const { source } = req.body;
+    if (!source) return res.status(400).json({ error: 'Missing source (shopify/dixa)' });
+    const result = await db.query(
+      `DELETE FROM sync_log WHERE source = $1 AND records_synced = 0`,
+      [source]
+    );
+    res.json({
+      success: true,
+      message: `Deleted ${result.rowCount} empty sync_log entries for ${source}`,
+      deleted: result.rowCount,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // DB schema aanmaken (eenmalig)
 router.post('/setup', async (req, res) => {
   try {
