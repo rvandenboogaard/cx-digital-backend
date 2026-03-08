@@ -21,7 +21,10 @@ async function getConversations(filters = {}) {
   if (!config.apiKey) throw new Error('Dixa API key not configured.');
 
   const createdAfter = dateFrom.split('T')[0];
-  const createdBefore = dateTo.split('T')[0];
+  // created_before moet de dag NA de gewenste dag zijn (exclusive)
+  const nextDay = new Date(dateTo);
+  nextDay.setDate(nextDay.getDate() + 1);
+  const createdBefore = nextDay.toISOString().substring(0, 10);
   console.log(`Dixa: Fetching conversations from ${createdAfter} to ${createdBefore}`);
 
   const response = await axios.get(
