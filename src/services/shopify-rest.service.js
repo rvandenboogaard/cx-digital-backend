@@ -17,14 +17,21 @@ async function getOrdersForDay(baseUrl, dateFrom, dateTo) {
   let page = 1;
 
   do {
-    const params = pageInfo
-      ? { page_info: pageInfo, limit: 250 }
-      : { created_at_min: dateFrom, created_at_max: dateTo, limit: 250, status: 'any' };
+    // Shopify cursor pagination: bij vervolgpagina's alleen page_info meesturen
+    let url;
+    let params;
+    if (pageInfo) {
+      url = `${baseUrl}/orders.json?page_info=${pageInfo}&limit=250`;
+      params = {};
+    } else {
+      url = `${baseUrl}/orders.json`;
+      params = { created_at_min: dateFrom, created_at_max: dateTo, limit: 250, status: 'any' };
+    }
 
     // Rate limit: wacht tussen paginated requests
     if (page > 1) await sleep(600);
 
-    const response = await axios.get(`${baseUrl}/orders.json`, {
+    const response = await axios.get(url, {
       params,
       headers: { 'X-Shopify-Access-Token': config.accessToken },
       timeout: 8000,
@@ -32,13 +39,14 @@ async function getOrdersForDay(baseUrl, dateFrom, dateTo) {
 
     const orders = response.data.orders || [];
     allOrders = allOrders.concat(orders);
+    console.log(`  Page ${page}: ${orders.length} orders (total: ${allOrders.length})`);
 
     const linkHeader = response.headers['link'] || '';
     const nextMatch = linkHeader.match(/<[^>]*page_info=([^&>]+)[^>]*>;\s*rel="next"/);
     pageInfo = nextMatch ? nextMatch[1] : null;
     page++;
 
-  } while (pageInfo && page <= 10);
+  } while (pageInfo && page <= 20);
 
   return allOrders;
 }
