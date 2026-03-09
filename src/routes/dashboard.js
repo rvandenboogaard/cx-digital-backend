@@ -338,11 +338,21 @@ router.get('/all', async (req, res) => {
     if (!dbAvailable) return res.status(503).json({ error: 'Database not available' });
 
     const tagKey = tag || 'all';
+    const { prevFrom, prevTo } = getPreviousPeriod(date_from, date_to);
+    const marketTag = tag || null;
+
     const [summary, trend, stores, queues] = await Promise.all([
-      cached(`summary:${date_from}:${date_to}:${tagKey}`, () => dashboardDB.getSummary(date_from, date_to, tag || null)),
-      cached(`trend:${date_from}:${date_to}:${tagKey}`, () => dashboardDB.getTrend(date_from, date_to, tag || null)),
+      cached(`summary:${date_from}:${date_to}:${tagKey}:with-trend`, async () => {
+        const [current, previous] = await Promise.all([
+          dashboardDB.getSummary(date_from, date_to, marketTag),
+          dashboardDB.getSummary(prevFrom, prevTo, marketTag).catch(() => null),
+        ]);
+        const trends = calculateTrends(current.metrics, previous ? previous.metrics : null);
+        return { ...current, metrics: { ...current.metrics, ...trends } };
+      }),
+      cached(`trend:${date_from}:${date_to}:${tagKey}`, () => dashboardDB.getTrend(date_from, date_to, marketTag)),
       cached(`stores:${date_from}:${date_to}`, () => dashboardDB.getStores(date_from, date_to)),
-      cached(`queues:${date_from}:${date_to}:${tagKey}`, () => dashboardDB.getQueues(date_from, date_to, tag || null)),
+      cached(`queues:${date_from}:${date_to}:${tagKey}`, () => dashboardDB.getQueues(date_from, date_to, marketTag)),
     ]);
 
     res.json({
