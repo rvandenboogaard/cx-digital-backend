@@ -1,5 +1,15 @@
 const db = require('./db.service');
 
+// Queue type to SQL condition mapping
+// - chat: initial_channel is widgetchat or contactform
+// - mail: initial_channel is email, OR queue contains BOL (marketplace = email-like)
+// - review: queue_name contains 'review'
+const QUEUE_TYPE_SQL = {
+  chat: `(LOWER(initial_channel) IN ('widgetchat', 'contactform'))`,
+  mail: `(LOWER(initial_channel) = 'email' OR LOWER(queue_name) LIKE '%bol%')`,
+  review: `(LOWER(queue_name) LIKE '%review%')`,
+};
+
 // Build dynamic filter clause for market_tags and queue_types
 function buildFilters(baseParamCount, { marketTags, queueTypes } = {}) {
   let clause = '';
@@ -13,11 +23,13 @@ function buildFilters(baseParamCount, { marketTags, queueTypes } = {}) {
     idx += marketTags.length;
   }
   if (queueTypes && queueTypes.length > 0) {
-    // queue_types filter: match queue_name patterns like 'chat', 'mail', 'review'
-    const conditions = queueTypes.map((_, i) => `LOWER(queue_name) LIKE $${idx + i}`).join(' OR ');
-    clause += ` AND (${conditions})`;
-    params.push(...queueTypes.map(qt => `%${qt.toLowerCase()}%`));
-    idx += queueTypes.length;
+    // Map queue_types to SQL conditions using initial_channel + queue_name
+    const conditions = queueTypes
+      .map(qt => QUEUE_TYPE_SQL[qt.toLowerCase()])
+      .filter(Boolean);
+    if (conditions.length > 0) {
+      clause += ` AND (${conditions.join(' OR ')})`;
+    }
   }
   return { clause, params };
 }
