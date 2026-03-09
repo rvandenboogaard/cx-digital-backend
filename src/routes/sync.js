@@ -114,6 +114,29 @@ router.post('/backfill', async (req, res) => {
   }
 });
 
+// Retry cron: herprobeert failed syncs (draait 30 min na daily sync)
+router.get('/retry', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    const cronSecret = process.env.CRON_SECRET;
+    if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    console.log('=== Retry failed syncs gestart ===');
+    const result = await syncService.retryFailed();
+
+    res.json({
+      success: true,
+      message: 'Retry completed',
+      ...result,
+    });
+  } catch (error) {
+    console.error('Retry failed:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Sync status: welke dagen zijn gesynchroniseerd
 router.get('/status', async (req, res) => {
   try {

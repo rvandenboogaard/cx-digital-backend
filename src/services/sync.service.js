@@ -2,6 +2,27 @@ const db = require('./db.service');
 const shopifyRESTService = require('./shopify-rest.service');
 const dixaService = require('./dixa.service');
 const queueMatcher = require('./queue-matcher.service');
+const slack = require('./slack.service');
+
+function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+
+// Retry wrapper: probeert een functie max 3x met oplopende wachttijd (5s, 15s, 30s)
+async function withRetry(fn, label) {
+  const delays = [5000, 15000, 30000];
+  for (let attempt = 0; attempt <= delays.length; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (attempt < delays.length) {
+        console.warn(`${label} poging ${attempt + 1} mislukt: ${err.message}. Retry in ${delays[attempt] / 1000}s...`);
+        await sleep(delays[attempt]);
+      } else {
+        console.error(`${label} definitief mislukt na ${attempt + 1} pogingen: ${err.message}`);
+        throw err;
+      }
+    }
+  }
+}
 
 // Sync Shopify orders voor 1 dag
 async function syncShopifyDay(date) {
@@ -13,7 +34,10 @@ async function syncShopifyDay(date) {
 
   let orders;
   try {
-    orders = await shopifyRESTService.getOrdersViaREST({ dateFrom, dateTo });
+    orders = await withRetry(
+      () => shopifyRESTService.getOrdersViaREST({ dateFrom, dateTo }),
+      `Shopify API ${dateStr}`
+    );
   } catch (err) {
     await logSync(dateStr, 'shopify', 0, err.message);
     return { date: dateStr, synced: 0, error: err.message };
@@ -99,7 +123,10 @@ async function syncDixaDay(date) {
 
   let conversations;
   try {
-    conversations = await dixaService.getConversations({ dateFrom, dateTo });
+    conversations = await withRetry(
+      () => dixaService.getConversations({ dateFrom, dateTo }),
+      `Dixa API ${dateStr}`
+    );
   } catch (err) {
     await logSync(dateStr, 'dixa', 0, err.message);
     return { date: dateStr, synced: 0, error: err.message };
@@ -224,7 +251,7 @@ async function backfill(startDate, endDate, dayLimit = 3) {
   return results;
 }
 
-// Sync log bijhouden
+// Sync log bijhouden + Slack alert bij problemen
 async function logSync(dateStr, source, recordsSynced, error = null) {
   try {
     await db.query(
@@ -240,6 +267,48 @@ async function logSync(dateStr, source, recordsSynced, error = null) {
   } catch (err) {
     console.error('Sync log failed:', err.message);
   }
+
+  // Slack alert bij fout of 0 records op werkdag
+  await slack.notifySyncResult(dateStr, source, recordsSynced, error);
 }
 
-module.exports = { syncShopifyDay, syncDixaDay, syncYesterday, syncToday, backfill };
+// Retry failed syncs: herprobeert alle mislukte syncs van de laatste 2 dagen
+async function retryFailed() {
+  const failed = await db.query(
+    `SELECT sync_date, source FROM sync_log
+     WHERE status = 'failed'
+       AND sync_date >= NOW() - INTERVAL '2 days'
+     ORDER BY sync_date`
+  );
+
+  if (failed.rows.length === 0) {
+    return { retried: 0, message: 'Geen failed syncs gevonden' };
+  }
+
+  const results = [];
+  for (const row of failed.rows) {
+    const dateStr = new Date(row.sync_date).toISOString().substring(0, 10);
+    console.log(`Retry: ${row.source} ${dateStr}`);
+
+    // Verwijder failed entry zodat logSync opnieuw kan schrijven
+    await db.query(
+      `DELETE FROM sync_log WHERE sync_date = $1 AND source = $2 AND status = 'failed'`,
+      [dateStr, row.source]
+    );
+
+    let result;
+    if (row.source === 'shopify') {
+      result = await syncShopifyDay(dateStr);
+    } else {
+      result = await syncDixaDay(dateStr);
+    }
+    results.push({ source: row.source, date: dateStr, result });
+  }
+
+  // Stuur retry resultaten naar Slack
+  await slack.notifyRetryResult(results);
+
+  return { retried: results.length, results };
+}
+
+module.exports = { syncShopifyDay, syncDixaDay, syncYesterday, syncToday, backfill, retryFailed };
