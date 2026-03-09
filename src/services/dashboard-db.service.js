@@ -10,8 +10,8 @@ const QUEUE_TYPE_SQL = {
   review: `(LOWER(queue_name) LIKE '%review%')`,
 };
 
-// Build dynamic filter clause for market_tags and queue_types
-function buildFilters(baseParamCount, { marketTags, queueTypes } = {}) {
+// Build dynamic filter clause for market_tags, stores, and queue_types
+function buildFilters(baseParamCount, { marketTags, stores, queueTypes } = {}) {
   let clause = '';
   const params = [];
   let idx = baseParamCount + 1;
@@ -21,6 +21,13 @@ function buildFilters(baseParamCount, { marketTags, queueTypes } = {}) {
     clause += ` AND market_tag IN (${placeholders})`;
     params.push(...marketTags);
     idx += marketTags.length;
+  }
+  if (stores && stores.length > 0) {
+    // Match store name as prefix of queue_name (e.g. "smartwatchbanden.NL" matches "smartwatchbanden.NL (MAIL+CHAT)")
+    const storeConditions = stores.map((_, i) => `queue_name LIKE $${idx + i} || '%'`);
+    clause += ` AND (${storeConditions.join(' OR ')})`;
+    params.push(...stores);
+    idx += stores.length;
   }
   if (queueTypes && queueTypes.length > 0) {
     // Map queue_types to SQL conditions using initial_channel + queue_name
@@ -39,7 +46,7 @@ async function getSummary(dateFrom, dateTo, marketTag, filters = {}) {
   // Support legacy single marketTag + new multi-filter
   const marketTags = filters.marketTags || (marketTag ? [marketTag] : null);
   const { clause: marketFilter, params: filterParams } = buildFilters(2, { marketTags });
-  const { clause: convFilter, params: convFilterParams } = buildFilters(2, { marketTags, queueTypes: filters.queueTypes });
+  const { clause: convFilter, params: convFilterParams } = buildFilters(2, { marketTags, stores: filters.stores, queueTypes: filters.queueTypes });
   const orderParams = [dateFrom, dateTo, ...filterParams];
   const convParams = [dateFrom, dateTo, ...convFilterParams];
 
@@ -98,7 +105,7 @@ async function getSummary(dateFrom, dateTo, marketTag, filters = {}) {
 async function getTrend(dateFrom, dateTo, marketTag, filters = {}) {
   const marketTags = filters.marketTags || (marketTag ? [marketTag] : null);
   const { clause: marketFilter, params: filterParams } = buildFilters(2, { marketTags });
-  const { clause: convFilter, params: convFilterParams } = buildFilters(2, { marketTags, queueTypes: filters.queueTypes });
+  const { clause: convFilter, params: convFilterParams } = buildFilters(2, { marketTags, stores: filters.stores, queueTypes: filters.queueTypes });
   const orderParams = [dateFrom, dateTo, ...filterParams];
   const convParams = [dateFrom, dateTo, ...convFilterParams];
 
@@ -197,7 +204,7 @@ async function getStores(dateFrom, dateTo) {
 // Queue breakdown
 async function getQueues(dateFrom, dateTo, marketTag, filters = {}) {
   const marketTags = filters.marketTags || (marketTag ? [marketTag] : null);
-  const { clause: convFilter, params: filterParams } = buildFilters(2, { marketTags, queueTypes: filters.queueTypes });
+  const { clause: convFilter, params: filterParams } = buildFilters(2, { marketTags, stores: filters.stores, queueTypes: filters.queueTypes });
   const params = [dateFrom, dateTo, ...filterParams];
 
   const result = await db.query(

@@ -15,6 +15,10 @@ function parseFilters(query) {
       filters.marketTags = [...new Set(countries.map(c => mapCountryToMarket(c)))];
     }
   }
+  if (query.stores) {
+    const stores = query.stores.split(',').map(s => s.trim()).filter(Boolean);
+    if (stores.length > 0) filters.stores = stores;
+  }
   if (query.queue_types) {
     const qt = query.queue_types.split(',').map(q => q.trim().toLowerCase()).filter(Boolean);
     if (qt.length > 0) filters.queueTypes = qt;
@@ -79,7 +83,7 @@ router.get('/summary', async (req, res) => {
     const { prevFrom, prevTo } = getPreviousPeriod(date_from, date_to);
     const filters = parseFilters(req.query);
     if (tag && !filters.marketTags) filters.marketTags = [tag];
-    const filterKey = `${filters.marketTags ? filters.marketTags.sort().join('+') : 'all'}:${filters.queueTypes ? filters.queueTypes.sort().join('+') : 'all'}`;
+    const filterKey = `${filters.marketTags ? filters.marketTags.sort().join('+') : 'all'}:${filters.stores ? filters.stores.sort().join('+') : 'all'}:${filters.queueTypes ? filters.queueTypes.sort().join('+') : 'all'}`;
 
     // Probeer DB eerst
     if (await useDB()) {
@@ -362,7 +366,7 @@ router.get('/all', async (req, res) => {
     if (tag && !filters.marketTags) {
       filters.marketTags = [tag];
     }
-    const filterKey = `${filters.marketTags ? filters.marketTags.sort().join('+') : 'all'}:${filters.queueTypes ? filters.queueTypes.sort().join('+') : 'all'}`;
+    const filterKey = `${filters.marketTags ? filters.marketTags.sort().join('+') : 'all'}:${filters.stores ? filters.stores.sort().join('+') : 'all'}:${filters.queueTypes ? filters.queueTypes.sort().join('+') : 'all'}`;
 
     const { prevFrom, prevTo } = getPreviousPeriod(date_from, date_to);
 
