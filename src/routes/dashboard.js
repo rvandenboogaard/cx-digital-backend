@@ -28,16 +28,50 @@ async function cached(key, computeFn) {
   return data;
 }
 
+// Calculate previous period dates (same length, directly before)
+function getPreviousPeriod(dateFrom, dateTo) {
+  const from = new Date(dateFrom);
+  const to = new Date(dateTo);
+  const durationMs = to.getTime() - from.getTime();
+  const prevTo = new Date(from.getTime() - 1); // day before current from
+  const prevFrom = new Date(prevTo.getTime() - durationMs + 1);
+  return { prevFrom: prevFrom.toISOString().split('T')[0], prevTo: prevTo.toISOString().split('T')[0] };
+}
+
+// Calculate trend diffs: current metrics - previous metrics
+function calculateTrends(current, previous) {
+  if (!previous) return { trend_contact_rate: null, trend_fcr: null, trend_aht: null, trend_sla: null };
+  const diff = (a, b) => a != null && b != null ? parseFloat((a - b).toFixed(1)) : null;
+  return {
+    trend_contact_rate: diff(current.otc_ratio, previous.otc_ratio),
+    trend_fcr: diff(current.avg_fcr, previous.avg_fcr),
+    trend_aht: current.avg_aht_seconds != null && previous.avg_aht_seconds != null
+      ? Math.round(current.avg_aht_seconds - previous.avg_aht_seconds)
+      : null,
+    trend_sla: diff(current.avg_sla, previous.avg_sla),
+  };
+}
+
 // === SUMMARY ===
 router.get('/summary', async (req, res) => {
   try {
     const { tag, date_from, date_to } = req.query;
     if (!date_from || !date_to) return res.status(400).json({ error: 'Missing date_from and date_to' });
 
+    const { prevFrom, prevTo } = getPreviousPeriod(date_from, date_to);
+
     // Probeer DB eerst
     if (await useDB()) {
-      const cacheKey = `summary:${date_from}:${date_to}:${tag || 'all'}`;
-      const data = await cached(cacheKey, () => dashboardDB.getSummary(date_from, date_to, tag || null));
+      const cacheKey = `summary:${date_from}:${date_to}:${tag || 'all'}:with-trend`;
+      const data = await cached(cacheKey, async () => {
+        const marketTag = tag || null;
+        const [current, previous] = await Promise.all([
+          dashboardDB.getSummary(date_from, date_to, marketTag),
+          dashboardDB.getSummary(prevFrom, prevTo, marketTag).catch(() => null),
+        ]);
+        const trends = calculateTrends(current.metrics, previous ? previous.metrics : null);
+        return { ...current, metrics: { ...current.metrics, ...trends } };
+      });
       return res.json({ success: true, data_source: 'database', data });
     }
 
@@ -56,20 +90,45 @@ router.get('/summary', async (req, res) => {
     const totalConversations = conversations.length;
     const otcRatio = totalOrders > 0 ? ((totalConversations / totalOrders) * 100).toFixed(2) : 0;
 
+    const currentMetrics = {
+      total_orders: totalOrders, total_conversations: totalConversations,
+      otc_ratio: parseFloat(otcRatio),
+      open_tickets: 0,
+      avg_fcr: c1Result.summary.avg_fcr || 0,
+      avg_aht_seconds: c1Result.summary.avg_aht_seconds || 0,
+      avg_aht_formatted: c1Result.summary.avg_aht_formatted || '0:00',
+      avg_ast_seconds: c1Result.summary.avg_ast_seconds || 0,
+      avg_ast_formatted: c1Result.summary.avg_ast_formatted || '0.0h',
+      avg_sla: c1Result.summary.avg_sla || 0,
+    };
+
+    // Try to fetch previous period for trends (don't fail if unavailable)
+    let trends = { trend_contact_rate: null, trend_fcr: null, trend_aht: null, trend_sla: null };
+    try {
+      const prevDateFrom = new Date(prevFrom).toISOString();
+      const prevDateTo = new Date(prevTo).toISOString();
+      const prevFilters = { dateFrom: prevDateFrom, dateTo: prevDateTo, tags: filters.tags };
+      let prevOrders;
+      try { prevOrders = await shopifyRESTService.getOrdersViaREST(prevFilters); }
+      catch { prevOrders = []; }
+      const prevConvs = await dixaService.getConversations(prevFilters);
+      const prevC1 = c1CategoryService.calculateC1CategoryPerformance(prevConvs);
+      const prevTotalOrders = prevOrders.length;
+      const prevTotalConvs = prevConvs.length;
+      const prevOtc = prevTotalOrders > 0 ? (prevTotalConvs / prevTotalOrders) * 100 : 0;
+      const prevMetrics = {
+        otc_ratio: parseFloat(prevOtc.toFixed(2)),
+        avg_fcr: prevC1.summary.avg_fcr || 0,
+        avg_aht_seconds: prevC1.summary.avg_aht_seconds || 0,
+        avg_sla: prevC1.summary.avg_sla || 0,
+      };
+      trends = calculateTrends(currentMetrics, prevMetrics);
+    } catch (err) { console.warn('Trend calculation failed (live):', err.message); }
+
     res.json({
       success: true, data_source: 'live', data: {
         period: { from: dateFrom, to: dateTo }, tag: tag || 'all',
-        metrics: {
-          total_orders: totalOrders, total_conversations: totalConversations,
-          otc_ratio: parseFloat(otcRatio),
-          open_tickets: 0,
-          avg_fcr: c1Result.summary.avg_fcr || 0,
-          avg_aht_seconds: c1Result.summary.avg_aht_seconds || 0,
-          avg_aht_formatted: c1Result.summary.avg_aht_formatted || '0:00',
-          avg_ast_seconds: c1Result.summary.avg_ast_seconds || 0,
-          avg_ast_formatted: c1Result.summary.avg_ast_formatted || '0.0h',
-          avg_sla: c1Result.summary.avg_sla || 0,
-        },
+        metrics: { ...currentMetrics, ...trends },
       },
     });
   } catch (error) { res.status(500).json({ error: error.message, data_source: 'error' }); }
