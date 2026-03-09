@@ -20,6 +20,10 @@
       "schedule": "0 6 * * *"
     },
     {
+      "path": "/api/sync/daily",
+      "schedule": "0 22 * * *"
+    },
+    {
       "path": "/api/sync/retry",
       "schedule": "30 6 * * *"
     }
