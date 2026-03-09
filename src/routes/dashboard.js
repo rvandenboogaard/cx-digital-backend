@@ -3,6 +3,24 @@ const router = express.Router();
 const dashboardDB = require('../services/dashboard-db.service');
 const dbService = require('../services/db.service');
 const cache = require('../services/cache.service');
+const { mapCountryToMarket } = require('../services/country-mapper.service');
+
+// Parse filter query params into structured filters object
+function parseFilters(query) {
+  const filters = {};
+  if (query.countries) {
+    const countries = query.countries.split(',').map(c => c.trim().toUpperCase()).filter(Boolean);
+    if (countries.length > 0) {
+      // Deduplicate market tags (NL and BE both map to SWB)
+      filters.marketTags = [...new Set(countries.map(c => mapCountryToMarket(c)))];
+    }
+  }
+  if (query.queue_types) {
+    const qt = query.queue_types.split(',').map(q => q.trim().toLowerCase()).filter(Boolean);
+    if (qt.length > 0) filters.queueTypes = qt;
+  }
+  return filters;
+}
 
 // Fallback imports voor als DB niet beschikbaar is
 const shopifyService = require('../services/shopify.service');
@@ -59,15 +77,17 @@ router.get('/summary', async (req, res) => {
     if (!date_from || !date_to) return res.status(400).json({ error: 'Missing date_from and date_to' });
 
     const { prevFrom, prevTo } = getPreviousPeriod(date_from, date_to);
+    const filters = parseFilters(req.query);
+    if (tag && !filters.marketTags) filters.marketTags = [tag];
+    const filterKey = `${filters.marketTags ? filters.marketTags.sort().join('+') : 'all'}:${filters.queueTypes ? filters.queueTypes.sort().join('+') : 'all'}`;
 
     // Probeer DB eerst
     if (await useDB()) {
-      const cacheKey = `summary:${date_from}:${date_to}:${tag || 'all'}:with-trend`;
+      const cacheKey = `summary:${date_from}:${date_to}:${filterKey}:with-trend`;
       const data = await cached(cacheKey, async () => {
-        const marketTag = tag || null;
         const [current, previous] = await Promise.all([
-          dashboardDB.getSummary(date_from, date_to, marketTag),
-          dashboardDB.getSummary(prevFrom, prevTo, marketTag).catch(() => null),
+          dashboardDB.getSummary(date_from, date_to, null, filters),
+          dashboardDB.getSummary(prevFrom, prevTo, null, filters).catch(() => null),
         ]);
         const trends = calculateTrends(current.metrics, previous ? previous.metrics : null);
         return { ...current, metrics: { ...current.metrics, ...trends } };
@@ -78,12 +98,12 @@ router.get('/summary', async (req, res) => {
     // Fallback: live API
     const dateFrom = new Date(date_from).toISOString();
     const dateTo = new Date(date_to).toISOString();
-    const filters = { dateFrom, dateTo, tags: tag ? tag.split(',').map(t => t.trim()) : [] };
+    const apiFilters = { dateFrom, dateTo, tags: tag ? tag.split(',').map(t => t.trim()) : [] };
 
     let orders;
-    try { orders = await shopifyRESTService.getOrdersViaREST(filters); }
-    catch (err) { console.warn('Shopify REST failed:', err.message); orders = await shopifyService.getOrders(filters); }
-    const conversations = await dixaService.getConversations(filters);
+    try { orders = await shopifyRESTService.getOrdersViaREST(apiFilters); }
+    catch (err) { console.warn('Shopify REST failed:', err.message); orders = await shopifyService.getOrders(apiFilters); }
+    const conversations = await dixaService.getConversations(apiFilters);
     const c1Result = c1CategoryService.calculateC1CategoryPerformance(conversations);
 
     const totalOrders = orders.length;
@@ -107,7 +127,7 @@ router.get('/summary', async (req, res) => {
     try {
       const prevDateFrom = new Date(prevFrom).toISOString();
       const prevDateTo = new Date(prevTo).toISOString();
-      const prevFilters = { dateFrom: prevDateFrom, dateTo: prevDateTo, tags: filters.tags };
+      const prevFilters = { dateFrom: prevDateFrom, dateTo: prevDateTo, tags: apiFilters.tags };
       let prevOrders;
       try { prevOrders = await shopifyRESTService.getOrdersViaREST(prevFilters); }
       catch { prevOrders = []; }
@@ -337,22 +357,27 @@ router.get('/all', async (req, res) => {
     const dbAvailable = await useDB();
     if (!dbAvailable) return res.status(503).json({ error: 'Database not available' });
 
-    const tagKey = tag || 'all';
+    const filters = parseFilters(req.query);
+    // Legacy tag support: if tag is set but no countries, use it as marketTags
+    if (tag && !filters.marketTags) {
+      filters.marketTags = [tag];
+    }
+    const filterKey = `${filters.marketTags ? filters.marketTags.sort().join('+') : 'all'}:${filters.queueTypes ? filters.queueTypes.sort().join('+') : 'all'}`;
+
     const { prevFrom, prevTo } = getPreviousPeriod(date_from, date_to);
-    const marketTag = tag || null;
 
     const [summary, trend, stores, queues] = await Promise.all([
-      cached(`summary:${date_from}:${date_to}:${tagKey}:with-trend`, async () => {
+      cached(`summary:${date_from}:${date_to}:${filterKey}:with-trend`, async () => {
         const [current, previous] = await Promise.all([
-          dashboardDB.getSummary(date_from, date_to, marketTag),
-          dashboardDB.getSummary(prevFrom, prevTo, marketTag).catch(() => null),
+          dashboardDB.getSummary(date_from, date_to, null, filters),
+          dashboardDB.getSummary(prevFrom, prevTo, null, filters).catch(() => null),
         ]);
         const trends = calculateTrends(current.metrics, previous ? previous.metrics : null);
         return { ...current, metrics: { ...current.metrics, ...trends } };
       }),
-      cached(`trend:${date_from}:${date_to}:${tagKey}`, () => dashboardDB.getTrend(date_from, date_to, marketTag)),
+      cached(`trend:${date_from}:${date_to}:${filterKey}`, () => dashboardDB.getTrend(date_from, date_to, null, filters)),
       cached(`stores:${date_from}:${date_to}`, () => dashboardDB.getStores(date_from, date_to)),
-      cached(`queues:${date_from}:${date_to}:${tagKey}`, () => dashboardDB.getQueues(date_from, date_to, marketTag)),
+      cached(`queues:${date_from}:${date_to}:${filterKey}`, () => dashboardDB.getQueues(date_from, date_to, null, filters)),
     ]);
 
     res.json({

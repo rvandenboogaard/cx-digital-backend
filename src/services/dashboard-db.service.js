@@ -1,14 +1,40 @@
 const db = require('./db.service');
 
+// Build dynamic filter clause for market_tags and queue_types
+function buildFilters(baseParamCount, { marketTags, queueTypes } = {}) {
+  let clause = '';
+  const params = [];
+  let idx = baseParamCount + 1;
+
+  if (marketTags && marketTags.length > 0) {
+    const placeholders = marketTags.map((_, i) => `$${idx + i}`).join(', ');
+    clause += ` AND market_tag IN (${placeholders})`;
+    params.push(...marketTags);
+    idx += marketTags.length;
+  }
+  if (queueTypes && queueTypes.length > 0) {
+    // queue_types filter: match queue_name patterns like 'chat', 'mail', 'review'
+    const conditions = queueTypes.map((_, i) => `LOWER(queue_name) LIKE $${idx + i}`).join(' OR ');
+    clause += ` AND (${conditions})`;
+    params.push(...queueTypes.map(qt => `%${qt.toLowerCase()}%`));
+    idx += queueTypes.length;
+  }
+  return { clause, params };
+}
+
 // OTC summary: orders, conversations, ratio + KPIs
-async function getSummary(dateFrom, dateTo, marketTag) {
-  const marketFilter = marketTag ? 'AND market_tag = $3' : '';
-  const params = marketTag ? [dateFrom, dateTo, marketTag] : [dateFrom, dateTo];
+async function getSummary(dateFrom, dateTo, marketTag, filters = {}) {
+  // Support legacy single marketTag + new multi-filter
+  const marketTags = filters.marketTags || (marketTag ? [marketTag] : null);
+  const { clause: marketFilter, params: filterParams } = buildFilters(2, { marketTags });
+  const { clause: convFilter, params: convFilterParams } = buildFilters(2, { marketTags, queueTypes: filters.queueTypes });
+  const orderParams = [dateFrom, dateTo, ...filterParams];
+  const convParams = [dateFrom, dateTo, ...convFilterParams];
 
   const [ordersResult, convResult, openResult] = await Promise.all([
     db.query(
       `SELECT COUNT(*) as total FROM orders WHERE order_date >= $1 AND order_date <= $2 ${marketFilter}`,
-      params
+      orderParams
     ),
     db.query(
       `SELECT
@@ -19,13 +45,13 @@ async function getSummary(dateFrom, dateTo, marketTag) {
          AVG(CASE WHEN assigned_at > 0 AND created_at > 0 THEN (assigned_at - created_at) / 1000.0 END) as avg_ast,
          COUNT(*) FILTER (WHERE status = 'closed' AND total_duration IS NOT NULL AND total_duration / 1000 < 86400) as sla_met
        FROM conversations
-       WHERE conversation_date >= $1 AND conversation_date <= $2 ${marketFilter}`,
-      params
+       WHERE conversation_date >= $1 AND conversation_date <= $2 ${convFilter}`,
+      convParams
     ),
     db.query(
       `SELECT COUNT(*) as total FROM conversations
-       WHERE conversation_date >= $1 AND conversation_date <= $2 AND status != 'closed' ${marketFilter}`,
-      params
+       WHERE conversation_date >= $1 AND conversation_date <= $2 AND status != 'closed' ${convFilter}`,
+      convParams
     ),
   ]);
 
@@ -57,22 +83,25 @@ async function getSummary(dateFrom, dateTo, marketTag) {
 }
 
 // Daily trend: orders + conversations per dag
-async function getTrend(dateFrom, dateTo, marketTag) {
-  const marketFilter = marketTag ? 'AND market_tag = $3' : '';
-  const params = marketTag ? [dateFrom, dateTo, marketTag] : [dateFrom, dateTo];
+async function getTrend(dateFrom, dateTo, marketTag, filters = {}) {
+  const marketTags = filters.marketTags || (marketTag ? [marketTag] : null);
+  const { clause: marketFilter, params: filterParams } = buildFilters(2, { marketTags });
+  const { clause: convFilter, params: convFilterParams } = buildFilters(2, { marketTags, queueTypes: filters.queueTypes });
+  const orderParams = [dateFrom, dateTo, ...filterParams];
+  const convParams = [dateFrom, dateTo, ...convFilterParams];
 
   const [ordersResult, convResult] = await Promise.all([
     db.query(
       `SELECT order_date::text as day, COUNT(*) as count
        FROM orders WHERE order_date >= $1 AND order_date <= $2 ${marketFilter}
        GROUP BY order_date ORDER BY order_date`,
-      params
+      orderParams
     ),
     db.query(
       `SELECT conversation_date::text as day, COUNT(*) as count
-       FROM conversations WHERE conversation_date >= $1 AND conversation_date <= $2 ${marketFilter}
+       FROM conversations WHERE conversation_date >= $1 AND conversation_date <= $2 ${convFilter}
        GROUP BY conversation_date ORDER BY conversation_date`,
-      params
+      convParams
     ),
   ]);
 
@@ -154,9 +183,10 @@ async function getStores(dateFrom, dateTo) {
 }
 
 // Queue breakdown
-async function getQueues(dateFrom, dateTo, marketTag) {
-  const marketFilter = marketTag ? 'AND market_tag = $3' : '';
-  const params = marketTag ? [dateFrom, dateTo, marketTag] : [dateFrom, dateTo];
+async function getQueues(dateFrom, dateTo, marketTag, filters = {}) {
+  const marketTags = filters.marketTags || (marketTag ? [marketTag] : null);
+  const { clause: convFilter, params: filterParams } = buildFilters(2, { marketTags, queueTypes: filters.queueTypes });
+  const params = [dateFrom, dateTo, ...filterParams];
 
   const result = await db.query(
     `SELECT queue_name,
@@ -164,7 +194,7 @@ async function getQueues(dateFrom, dateTo, marketTag) {
        COUNT(*) FILTER (WHERE status = 'closed' AND reopened = FALSE) as fcr_count,
        AVG(exports_handling_duration) FILTER (WHERE exports_handling_duration > 0) as avg_aht
      FROM conversations
-     WHERE conversation_date >= $1 AND conversation_date <= $2 AND queue_name IS NOT NULL ${marketFilter}
+     WHERE conversation_date >= $1 AND conversation_date <= $2 AND queue_name IS NOT NULL ${convFilter}
      GROUP BY queue_name
      ORDER BY total DESC`,
     params
