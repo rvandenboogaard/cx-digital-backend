@@ -100,8 +100,7 @@ function calculateSLAPerformance(conversations) {
       total: 0,
       sla_met: 0,
       sla_breached: 0,
-      avg_time_minutes: 0,
-      total_time_minutes: 0,
+      total_business_minutes: 0,
     };
   });
 
@@ -114,7 +113,7 @@ function calculateSLAPerformance(conversations) {
     
     // Response SLA
     if (conv.assigned_at && conv.created_at) {
-      const responseMinutes = calculateBusinessHours(conv.created_at, conv.assigned_at) / 60;
+      const responseMinutes = calculateBusinessHours(conv.created_at, conv.assigned_at);
       
       // Determine which response SLA applies (based on queue/channel/tags)
       let responsePolicy = 'Response SLA - Email'; // default
@@ -133,7 +132,7 @@ function calculateSLAPerformance(conversations) {
       const slaPolicy = SLA_POLICIES[responsePolicy];
       if (slaPolicy) {
         policyMetrics[responsePolicy].total += 1;
-        policyMetrics[responsePolicy].total_time_minutes += responseMinutes;
+        policyMetrics[responsePolicy].total_business_minutes += responseMinutes;
         
         if (responseMinutes <= slaPolicy.response_minutes) {
           policyMetrics[responsePolicy].sla_met += 1;
@@ -145,7 +144,7 @@ function calculateSLAPerformance(conversations) {
 
     // Resolution SLA
     if (conv.closed_at && conv.created_at && conv.status === 'closed') {
-      const resolutionMinutes = calculateBusinessHours(conv.created_at, conv.closed_at) / 60;
+      const resolutionMinutes = calculateBusinessHours(conv.created_at, conv.closed_at);
       
       // Determine which resolution SLA applies (based on queue/channel/tags)
       let resolutionPolicy = 'Resolution SLA - Email'; // default
@@ -164,7 +163,7 @@ function calculateSLAPerformance(conversations) {
       const slaPolicy = SLA_POLICIES[resolutionPolicy];
       if (slaPolicy) {
         policyMetrics[resolutionPolicy].total += 1;
-        policyMetrics[resolutionPolicy].total_time_minutes += resolutionMinutes;
+        policyMetrics[resolutionPolicy].total_business_minutes += resolutionMinutes;
         
         if (resolutionMinutes <= slaPolicy.resolution_minutes) {
           policyMetrics[resolutionPolicy].sla_met += 1;
@@ -178,16 +177,21 @@ function calculateSLAPerformance(conversations) {
   // Calculate percentages and averages
   const policies = Object.values(policyMetrics)
     .filter(p => p.total > 0)
-    .map(p => ({
-      policy_name: p.policy_name,
-      total_conversations: p.total,
-      sla_met: p.sla_met,
-      sla_breached: p.sla_breached,
-      compliance_percentage: ((p.sla_met / p.total) * 100).toFixed(1),
-      breach_percentage: ((p.sla_breached / p.total) * 100).toFixed(1),
-      avg_time_minutes: Math.round(p.total_time_minutes / p.total),
-      avg_time_formatted: formatMinutes(Math.round(p.total_time_minutes / p.total)),
-    }))
+    .map(p => {
+      const avgMinutes = p.total_business_minutes / p.total;
+      const avgSeconds = Math.round(avgMinutes * 60);
+      return {
+        policy_name: p.policy_name,
+        total_conversations: p.total,
+        sla_met: p.sla_met,
+        sla_breached: p.sla_breached,
+        compliance_percentage: ((p.sla_met / p.total) * 100).toFixed(1),
+        breach_percentage: ((p.sla_breached / p.total) * 100).toFixed(1),
+        avg_time_minutes: Math.round(avgMinutes),
+        avg_time_seconds: avgSeconds,
+        avg_time_formatted: formatDuration(avgSeconds),
+      };
+    })
     .sort((a, b) => parseFloat(b.compliance_percentage) - parseFloat(a.compliance_percentage));
 
   // Summary
@@ -210,19 +214,23 @@ function calculateSLAPerformance(conversations) {
 }
 
 /**
- * Format minutes to readable format
+ * Format seconds to readable duration
+ * < 1 hour: MM:SS (e.g. "5:23")
+ * >= 1 hour: H:MM:SS (e.g. "2:15:03")
+ * >= 24 hours: Xd Yh (e.g. "1d 3h")
  */
-function formatMinutes(minutes) {
-  const days = Math.floor(minutes / (24 * 60));
-  const hours = Math.floor((minutes % (24 * 60)) / 60);
-  const mins = minutes % 60;
-  
+function formatDuration(totalSeconds) {
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const mins = Math.floor((totalSeconds % 3600) / 60);
+  const secs = totalSeconds % 60;
+
   if (days > 0) return `${days}d ${hours}h`;
-  if (hours > 0) return `${hours}h ${mins}m`;
-  return `${mins}m`;
+  if (hours > 0) return `${hours}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
 module.exports = {
   calculateSLAPerformance,
-  formatMinutes,
+  formatDuration,
 };
