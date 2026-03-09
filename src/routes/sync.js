@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const syncService = require('../services/sync.service');
 const db = require('../services/db.service');
+const cache = require('../services/cache.service');
 
 // Vercel Cron endpoint: dagelijkse sync (gisteren + vandaag)
 router.get('/daily', async (req, res) => {
@@ -16,6 +17,9 @@ router.get('/daily', async (req, res) => {
     console.log('=== Daily sync gestart ===');
     const yesterday = await syncService.syncYesterday();
     const today = await syncService.syncToday();
+
+    // Invalidate dashboard cache after sync so fresh data is served
+    cache.clearAll();
 
     res.json({
       success: true,
@@ -36,6 +40,7 @@ router.post('/day', async (req, res) => {
 
     const shopify = await syncService.syncShopifyDay(date);
     const dixa = await syncService.syncDixaDay(date);
+    cache.clearAll();
 
     res.json({ success: true, date, shopify, dixa });
   } catch (error) {
@@ -259,6 +264,9 @@ router.post('/setup', async (req, res) => {
     await db.query(`CREATE INDEX IF NOT EXISTS idx_conv_market ON conversations(market_tag)`);
     await db.query(`CREATE INDEX IF NOT EXISTS idx_conv_date_market ON conversations(conversation_date, market_tag)`);
     await db.query(`CREATE INDEX IF NOT EXISTS idx_conv_queue ON conversations(queue_name)`);
+    await db.query(`CREATE INDEX IF NOT EXISTS idx_conv_status ON conversations(status)`);
+    await db.query(`CREATE INDEX IF NOT EXISTS idx_conv_reopened ON conversations(status, reopened) WHERE status = 'closed'`);
+    await db.query(`CREATE INDEX IF NOT EXISTS idx_conv_assigned_created ON conversations(assigned_at, created_at) WHERE assigned_at > 0 AND created_at > 0`);
 
     // sync_log unique index
     await db.query(`

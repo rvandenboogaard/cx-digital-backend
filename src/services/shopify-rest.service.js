@@ -28,8 +28,8 @@ async function getOrdersForDay(baseUrl, dateFrom, dateTo) {
       params = { created_at_min: dateFrom, created_at_max: dateTo, limit: 250, status: 'any' };
     }
 
-    // Rate limit: wacht tussen paginated requests (Shopify allows 2 req/s)
-    if (page > 1) await sleep(250);
+    // Rate limit: wacht tussen paginated requests (Shopify allows 2 req/s = 500ms minimum)
+    if (page > 1) await sleep(500);
 
     const response = await axios.get(url, {
       params,

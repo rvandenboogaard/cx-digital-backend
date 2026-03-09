@@ -60,6 +60,10 @@ const TAG_MAPPING = {
   'other': { c1: 'Other', c2: 'Other' },
 };
 
+// Pre-build lookup structures for O(1) direct matches and faster partial matching
+const TAG_MAP_DIRECT = new Map(Object.entries(TAG_MAPPING).map(([k, v]) => [k, v]));
+const TAG_MAP_KEYS = Object.keys(TAG_MAPPING); // sorted by insertion order = priority
+
 /**
  * Map Dixa tags to C1-C2 categories
  * @param {array} dixaTags - Array of tags from Dixa labels
@@ -78,21 +82,23 @@ function mapTagsToC1C2(dixaTags = []) {
   // Find first matching tag (priority order)
   for (const tag of dixaTags) {
     const lowerTag = tag.toLowerCase().trim();
-    
-    // Direct match
-    if (TAG_MAPPING[lowerTag]) {
+
+    // O(1) direct match via Map
+    const direct = TAG_MAP_DIRECT.get(lowerTag);
+    if (direct) {
       return {
-        c1: TAG_MAPPING[lowerTag].c1,
-        c2: TAG_MAPPING[lowerTag].c2,
+        c1: direct.c1,
+        c2: direct.c2,
         tags: dixaTags,
         confidence: 100,
         matched_tag: tag
       };
     }
-    
-    // Partial match (contains)
-    for (const [mapKey, mapValue] of Object.entries(TAG_MAPPING)) {
+
+    // Partial match (contains) — single loop over keys
+    for (const mapKey of TAG_MAP_KEYS) {
       if (lowerTag.includes(mapKey) || mapKey.includes(lowerTag)) {
+        const mapValue = TAG_MAP_DIRECT.get(mapKey);
         return {
           c1: mapValue.c1,
           c2: mapValue.c2,

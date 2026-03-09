@@ -31,13 +31,17 @@ function loadOrdersFromFile() {
   }
 }
 
-// Save orders to file
+// Save orders to file (debounced to avoid blocking I/O on every webhook)
+let saveTimer = null;
 function saveOrdersToFile() {
-  try {
-    fs.writeFileSync(ORDERS_FILE, JSON.stringify(storedOrders, null, 2));
-  } catch (err) {
-    console.warn(`⚠️ Could not save orders file: ${err.message}`);
-  }
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    try {
+      fs.writeFileSync(ORDERS_FILE, JSON.stringify(storedOrders, null, 2));
+    } catch (err) {
+      console.warn(`⚠️ Could not save orders file: ${err.message}`);
+    }
+  }, 2000); // batch writes within 2s window
 }
 
 /**
