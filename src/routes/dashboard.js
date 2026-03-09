@@ -224,16 +224,46 @@ router.get('/c1-categories', async (req, res) => {
 // === SLA PERFORMANCE ===
 router.get('/sla-performance', async (req, res) => {
   try {
-    const cacheKey = 'sla-performance:7d';
+    const cacheKey = 'sla-performance:7d:with-trend';
     const result = await cached(cacheKey, async () => {
       const slaService = require('../services/sla-performance.service');
       const backlogService = require('../services/dixa-backlog.service');
-      const dateFrom = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-      const dateTo = new Date().toISOString();
-      const conversations = await backlogService.getConversationsFromExports(new Date(dateFrom), new Date(dateTo));
-      if (!conversations || conversations.length === 0) return { data: { policies: [], summary: { total_conversations: 0, avg_sla_compliance: 0 } }, period: null };
-      const data = slaService.calculateSLAPerformance(conversations);
-      return { data, period: { from: dateFrom.split('T')[0], to: dateTo.split('T')[0] } };
+      const now = Date.now();
+      const currentFrom = new Date(now - 7 * 24 * 60 * 60 * 1000);
+      const currentTo = new Date(now);
+      const prevFrom = new Date(now - 14 * 24 * 60 * 60 * 1000);
+      const prevTo = new Date(now - 7 * 24 * 60 * 60 * 1000);
+
+      // Fetch both periods in parallel
+      const [currentConvs, prevConvs] = await Promise.all([
+        backlogService.getConversationsFromExports(currentFrom, currentTo),
+        backlogService.getConversationsFromExports(prevFrom, prevTo),
+      ]);
+
+      if (!currentConvs || currentConvs.length === 0) {
+        return { data: { policies: [], summary: { total_conversations: 0, avg_sla_compliance: 0 } }, period: null };
+      }
+
+      const currentData = slaService.calculateSLAPerformance(currentConvs);
+      const prevData = prevConvs && prevConvs.length > 0
+        ? slaService.calculateSLAPerformance(prevConvs)
+        : null;
+
+      // Add trend_pct per policy: current compliance - previous compliance
+      if (prevData) {
+        const prevByName = {};
+        prevData.policies.forEach(p => { prevByName[p.policy_name] = parseFloat(p.compliance_percentage); });
+
+        currentData.policies = currentData.policies.map(p => {
+          const prevCompliance = prevByName[p.policy_name];
+          const trend_pct = prevCompliance != null
+            ? parseFloat((parseFloat(p.compliance_percentage) - prevCompliance).toFixed(1))
+            : null;
+          return { ...p, trend_pct };
+        });
+      }
+
+      return { data: currentData, period: { from: currentFrom.toISOString().split('T')[0], to: currentTo.toISOString().split('T')[0] } };
     });
     res.json({ success: true, data_source: 'live', data: result.data, ...(result.period && { period: result.period }) });
   } catch (error) { res.status(500).json({ success: false, error: error.message, data_source: 'error' }); }
