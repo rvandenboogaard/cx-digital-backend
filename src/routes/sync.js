@@ -280,4 +280,43 @@ router.post('/setup', async (req, res) => {
   }
 });
 
+// Check: haal 1 dag Shopify orders op en toon tags (niet opslaan)
+router.get('/check-tags', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    const cronSecret = process.env.CRON_SECRET;
+    if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const date = req.query.date || new Date().toISOString().substring(0, 10);
+    const shopifyService = require('../services/shopify-rest.service');
+    const dateFrom = `${date}T00:00:00.000Z`;
+    const dateTo = `${date}T23:59:59.999Z`;
+
+    const orders = await shopifyService.getOrdersViaREST({ dateFrom, dateTo });
+
+    const summary = {
+      date,
+      total_orders: orders.length,
+      xoxo_orders: orders.filter(o => o.market_tag === 'XoXo').length,
+      by_market: {},
+      sample_xoxo: [],
+    };
+
+    orders.forEach(o => {
+      summary.by_market[o.market_tag] = (summary.by_market[o.market_tag] || 0) + 1;
+    });
+
+    summary.sample_xoxo = orders
+      .filter(o => o.market_tag === 'XoXo')
+      .slice(0, 5)
+      .map(o => ({ id: o.shopify_order_id, email: o.customer_email, country: o.country_code }));
+
+    res.json({ success: true, ...summary });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 module.exports = router;

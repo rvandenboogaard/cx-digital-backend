@@ -80,7 +80,9 @@ async function getOrdersViaREST(filters = {}) {
 
     return allOrders.map((order) => {
       const countryCode = order.shipping_address?.country_code || order.billing_address?.country_code;
-      const market = countryMapper.mapCountryToMarket(countryCode);
+      const orderTags = (order.tags || '').toLowerCase();
+      const isXoXo = orderTags.includes('xoxo');
+      const market = isXoXo ? 'XoXo' : countryMapper.mapCountryToMarket(countryCode);
       return {
         shopify_order_id: order.id,
         order_date: order.created_at,
