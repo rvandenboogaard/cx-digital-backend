@@ -136,15 +136,29 @@ async function syncDixaDay(date) {
     return { date: dateStr, synced: 0 };
   }
 
+  // Batch insert: 50 conversations per query (18 params each = 900 params, under PG limit)
   let synced = 0;
-  for (const conv of conversations) {
+  const batchSize = 50;
+  for (let i = 0; i < conversations.length; i += batchSize) {
+    const batch = conversations.slice(i, i + batchSize);
     try {
-      // Bepaal market_tag op basis van queue naam
-      const marketTag = queueMatcher.getMarketFromQueue(conv.queue_name);
-
+      const values = [];
+      const params = [];
+      batch.forEach((conv, idx) => {
+        const marketTag = queueMatcher.getMarketFromQueue(conv.queue_name);
+        const offset = idx * 18;
+        values.push(`($${offset+1}, $${offset+2}, $${offset+3}, $${offset+4}, $${offset+5}, $${offset+6}, $${offset+7}, $${offset+8}, $${offset+9}, $${offset+10}, $${offset+11}, $${offset+12}, $${offset+13}, $${offset+14}, $${offset+15}, $${offset+16}, $${offset+17}, $${offset+18})`);
+        params.push(
+          conv.dixa_conversation_id, dateStr, conv.conversation_hour, conv.customer_email,
+          conv.message_count, conv.status, conv.reopened, conv.queue_name,
+          conv.tags || [], conv.assigned_at, conv.created_at, conv.closed_at,
+          conv.initial_channel, conv.exports_handling_duration, conv.exports_first_response_time,
+          conv.total_duration, marketTag, conv.source || 'dixa_exports',
+        );
+      });
       await db.query(
         `INSERT INTO conversations (dixa_conversation_id, conversation_date, conversation_hour, customer_email, message_count, status, reopened, queue_name, tags, assigned_at, created_at, closed_at, initial_channel, exports_handling_duration, exports_first_response_time, total_duration, market_tag, source)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+         VALUES ${values.join(', ')}
          ON CONFLICT (dixa_conversation_id) DO UPDATE SET
            status = EXCLUDED.status,
            reopened = EXCLUDED.reopened,
@@ -155,30 +169,35 @@ async function syncDixaDay(date) {
            exports_first_response_time = EXCLUDED.exports_first_response_time,
            total_duration = EXCLUDED.total_duration,
            synced_at = NOW()`,
-        [
-          conv.dixa_conversation_id,
-          dateStr,
-          conv.conversation_hour,
-          conv.customer_email,
-          conv.message_count,
-          conv.status,
-          conv.reopened,
-          conv.queue_name,
-          conv.tags || [],
-          conv.assigned_at,
-          conv.created_at,
-          conv.closed_at,
-          conv.initial_channel,
-          conv.exports_handling_duration,
-          conv.exports_first_response_time,
-          conv.total_duration,
-          marketTag,
-          conv.source || 'dixa_exports',
-        ]
+        params
       );
-      synced++;
+      synced += batch.length;
     } catch (err) {
-      console.error(`Conversation insert failed ${conv.dixa_conversation_id}:`, err.message);
+      console.error(`Batch conversation insert failed at offset ${i}:`, err.message);
+      // Fallback: individual inserts
+      for (const conv of batch) {
+        try {
+          const marketTag = queueMatcher.getMarketFromQueue(conv.queue_name);
+          await db.query(
+            `INSERT INTO conversations (dixa_conversation_id, conversation_date, conversation_hour, customer_email, message_count, status, reopened, queue_name, tags, assigned_at, created_at, closed_at, initial_channel, exports_handling_duration, exports_first_response_time, total_duration, market_tag, source)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+             ON CONFLICT (dixa_conversation_id) DO UPDATE SET
+               status = EXCLUDED.status, reopened = EXCLUDED.reopened, message_count = EXCLUDED.message_count,
+               closed_at = EXCLUDED.closed_at, initial_channel = EXCLUDED.initial_channel,
+               exports_handling_duration = EXCLUDED.exports_handling_duration,
+               exports_first_response_time = EXCLUDED.exports_first_response_time,
+               total_duration = EXCLUDED.total_duration, synced_at = NOW()`,
+            [conv.dixa_conversation_id, dateStr, conv.conversation_hour, conv.customer_email,
+             conv.message_count, conv.status, conv.reopened, conv.queue_name,
+             conv.tags || [], conv.assigned_at, conv.created_at, conv.closed_at,
+             conv.initial_channel, conv.exports_handling_duration, conv.exports_first_response_time,
+             conv.total_duration, marketTag, conv.source || 'dixa_exports']
+          );
+          synced++;
+        } catch (e) {
+          console.error(`Conversation insert failed ${conv.dixa_conversation_id}:`, e.message);
+        }
+      }
     }
   }
 
@@ -187,24 +206,28 @@ async function syncDixaDay(date) {
   return { date: dateStr, synced, total: conversations.length };
 }
 
-// Sync gisteren (standaard daily cron)
+// Sync gisteren (standaard daily cron) — parallel Shopify + Dixa
 async function syncYesterday() {
   const yesterday = new Date();
   yesterday.setDate(yesterday.getDate() - 1);
   const dateStr = yesterday.toISOString().substring(0, 10);
 
-  const shopify = await syncShopifyDay(dateStr);
-  const dixa = await syncDixaDay(dateStr);
+  const [shopify, dixa] = await Promise.all([
+    syncShopifyDay(dateStr),
+    syncDixaDay(dateStr),
+  ]);
 
   return { date: dateStr, shopify, dixa };
 }
 
-// Sync vandaag (voor tussentijdse updates)
+// Sync vandaag (voor tussentijdse updates) — parallel Shopify + Dixa
 async function syncToday() {
   const today = new Date().toISOString().substring(0, 10);
 
-  const shopify = await syncShopifyDay(today);
-  const dixa = await syncDixaDay(today);
+  const [shopify, dixa] = await Promise.all([
+    syncShopifyDay(today),
+    syncDixaDay(today),
+  ]);
 
   return { date: today, shopify, dixa };
 }
@@ -228,17 +251,18 @@ async function backfill(startDate, endDate, dayLimit = 3) {
 
     const dayResult = { date: dateStr };
 
+    const syncTasks = [];
     if (!syncedSources.includes('shopify')) {
-      dayResult.shopify = await syncShopifyDay(dateStr);
+      syncTasks.push(syncShopifyDay(dateStr).then(r => { dayResult.shopify = r; }));
     } else {
       dayResult.shopify = { date: dateStr, skipped: true, reason: 'already synced' };
     }
-
     if (!syncedSources.includes('dixa')) {
-      dayResult.dixa = await syncDixaDay(dateStr);
+      syncTasks.push(syncDixaDay(dateStr).then(r => { dayResult.dixa = r; }));
     } else {
       dayResult.dixa = { date: dateStr, skipped: true, reason: 'already synced' };
     }
+    if (syncTasks.length > 0) await Promise.all(syncTasks);
 
     results.push(dayResult);
     current.setDate(current.getDate() + 1);

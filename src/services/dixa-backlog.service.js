@@ -121,6 +121,8 @@ async function calculateBacklogEvolution(dateFrom, dateTo) {
             netto_flow: 0,
             backlog_status: 'stable',
             avg_handling_seconds: 0,
+            _total_handling: 0,
+            _closed_with_handling: 0,
           };
         }
         days[createdDate].new_tickets += 1;
@@ -141,9 +143,16 @@ async function calculateBacklogEvolution(dateFrom, dateTo) {
             netto_flow: 0,
             backlog_status: 'stable',
             avg_handling_seconds: 0,
+            _total_handling: 0,
+            _closed_with_handling: 0,
           };
         }
         days[closedDate].closed_tickets += 1;
+        // Pre-aggregate handling durations per day (avoid O(n*days) re-filtering)
+        if (conv.exports_handling_duration > 0) {
+          days[closedDate]._total_handling += conv.exports_handling_duration;
+          days[closedDate]._closed_with_handling += 1;
+        }
       }
     });
 
@@ -172,23 +181,15 @@ async function calculateBacklogEvolution(dateFrom, dateTo) {
           day.backlog_status = 'growing';
         }
 
-        // Calculate average handling time for conversations closed this day
-        // Only count if status === "closed" AND closed_at exists
-        const conversationsClosedThisDay = conversations.filter(conv => {
-          if (!conv.closed_at || conv.status !== 'closed') return false;
-          const closedDate = new Date(conv.closed_at).toISOString().split('T')[0];
-          return closedDate === dayStr;
-        });
-
-        if (conversationsClosedThisDay.length > 0) {
-          const totalHandling = conversationsClosedThisDay.reduce((sum, conv) => {
-            // Use exports_handling_duration (in seconds)
-            return sum + (conv.exports_handling_duration || 0);
-          }, 0);
-          day.avg_handling_seconds = Math.round(totalHandling / conversationsClosedThisDay.length);
-          totalHandlingSeconds += totalHandling;
-          closedCount += conversationsClosedThisDay.length;
+        // Use pre-aggregated handling durations (O(1) instead of O(n) filter per day)
+        if (day._closed_with_handling > 0) {
+          day.avg_handling_seconds = Math.round(day._total_handling / day._closed_with_handling);
+          totalHandlingSeconds += day._total_handling;
+          closedCount += day._closed_with_handling;
         }
+        // Clean up internal fields
+        delete day._total_handling;
+        delete day._closed_with_handling;
 
         backlogEvolution.push(day);
       });
