@@ -132,6 +132,15 @@ async function syncDixaDay(date) {
     return { date: dateStr, synced: 0, error: err.message };
   }
   if (!conversations || conversations.length === 0) {
+    // Op werkdagen (ma-vr) is 0 conversations verdacht — markeer als 'empty' zodat retry het oppakt
+    const dayOfWeek = new Date(dateStr).getDay(); // 0=zo, 6=za
+    const isWorkday = dayOfWeek >= 1 && dayOfWeek <= 5;
+    const isRecent = (Date.now() - new Date(dateStr).getTime()) < 3 * 86400000; // < 3 dagen oud
+    if (isWorkday && isRecent) {
+      await logSync(dateStr, 'dixa', 0, 'zero_conversations_workday');
+      console.warn(`Sync Dixa ${dateStr}: 0 conversations op werkdag — gemarkeerd als failed voor retry`);
+      return { date: dateStr, synced: 0, warning: 'zero_conversations_workday' };
+    }
     await logSync(dateStr, 'dixa', 0);
     return { date: dateStr, synced: 0 };
   }
@@ -296,12 +305,15 @@ async function logSync(dateStr, source, recordsSynced, error = null) {
   await slack.notifySyncResult(dateStr, source, recordsSynced, error);
 }
 
-// Retry failed syncs: herprobeert alle mislukte syncs van de laatste 2 dagen
+// Retry failed syncs: herprobeert alle mislukte syncs van de laatste 5 dagen
+// Pakt ook 'completed' Dixa syncs met 0 records op werkdagen op
 async function retryFailed() {
   const failed = await db.query(
     `SELECT sync_date, source FROM sync_log
-     WHERE status = 'failed'
-       AND sync_date >= NOW() - INTERVAL '2 days'
+     WHERE (status = 'failed' AND sync_date >= NOW() - INTERVAL '5 days')
+        OR (source = 'dixa' AND records_synced = 0 AND status = 'completed'
+            AND sync_date >= NOW() - INTERVAL '5 days'
+            AND EXTRACT(DOW FROM sync_date) BETWEEN 1 AND 5)
      ORDER BY sync_date`
   );
 
@@ -314,9 +326,9 @@ async function retryFailed() {
     const dateStr = new Date(row.sync_date).toISOString().substring(0, 10);
     console.log(`Retry: ${row.source} ${dateStr}`);
 
-    // Verwijder failed entry zodat logSync opnieuw kan schrijven
+    // Verwijder failed/empty entry zodat logSync opnieuw kan schrijven
     await db.query(
-      `DELETE FROM sync_log WHERE sync_date = $1 AND source = $2 AND status = 'failed'`,
+      `DELETE FROM sync_log WHERE sync_date = $1 AND source = $2 AND (status = 'failed' OR records_synced = 0)`,
       [dateStr, row.source]
     );
 
