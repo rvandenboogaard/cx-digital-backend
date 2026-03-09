@@ -5,29 +5,29 @@ async function getSummary(dateFrom, dateTo, marketTag) {
   const marketFilter = marketTag ? 'AND market_tag = $3' : '';
   const params = marketTag ? [dateFrom, dateTo, marketTag] : [dateFrom, dateTo];
 
-  const ordersResult = await db.query(
-    `SELECT COUNT(*) as total FROM orders WHERE order_date >= $1 AND order_date <= $2 ${marketFilter}`,
-    params
-  );
-
-  const convResult = await db.query(
-    `SELECT
-       COUNT(*) as total,
-       COUNT(*) FILTER (WHERE status = 'closed' AND reopened = FALSE) as fcr_count,
-       AVG(exports_handling_duration) FILTER (WHERE exports_handling_duration > 0) as avg_aht,
-       AVG(exports_first_response_time) FILTER (WHERE exports_first_response_time > 0) as avg_frt,
-       AVG(CASE WHEN assigned_at > 0 AND created_at > 0 THEN (assigned_at - created_at) / 1000.0 END) as avg_ast,
-       COUNT(*) FILTER (WHERE status = 'closed' AND total_duration IS NOT NULL AND total_duration / 1000 < 86400) as sla_met
-     FROM conversations
-     WHERE conversation_date >= $1 AND conversation_date <= $2 ${marketFilter}`,
-    params
-  );
-
-  const openResult = await db.query(
-    `SELECT COUNT(*) as total FROM conversations
-     WHERE conversation_date >= $1 AND conversation_date <= $2 AND status != 'closed' ${marketFilter}`,
-    params
-  );
+  const [ordersResult, convResult, openResult] = await Promise.all([
+    db.query(
+      `SELECT COUNT(*) as total FROM orders WHERE order_date >= $1 AND order_date <= $2 ${marketFilter}`,
+      params
+    ),
+    db.query(
+      `SELECT
+         COUNT(*) as total,
+         COUNT(*) FILTER (WHERE status = 'closed' AND reopened = FALSE) as fcr_count,
+         AVG(exports_handling_duration) FILTER (WHERE exports_handling_duration > 0) as avg_aht,
+         AVG(exports_first_response_time) FILTER (WHERE exports_first_response_time > 0) as avg_frt,
+         AVG(CASE WHEN assigned_at > 0 AND created_at > 0 THEN (assigned_at - created_at) / 1000.0 END) as avg_ast,
+         COUNT(*) FILTER (WHERE status = 'closed' AND total_duration IS NOT NULL AND total_duration / 1000 < 86400) as sla_met
+       FROM conversations
+       WHERE conversation_date >= $1 AND conversation_date <= $2 ${marketFilter}`,
+      params
+    ),
+    db.query(
+      `SELECT COUNT(*) as total FROM conversations
+       WHERE conversation_date >= $1 AND conversation_date <= $2 AND status != 'closed' ${marketFilter}`,
+      params
+    ),
+  ]);
 
   const totalOrders = parseInt(ordersResult.rows[0].total);
   const conv = convResult.rows[0];
@@ -61,19 +61,20 @@ async function getTrend(dateFrom, dateTo, marketTag) {
   const marketFilter = marketTag ? 'AND market_tag = $3' : '';
   const params = marketTag ? [dateFrom, dateTo, marketTag] : [dateFrom, dateTo];
 
-  const ordersResult = await db.query(
-    `SELECT order_date::text as day, COUNT(*) as count
-     FROM orders WHERE order_date >= $1 AND order_date <= $2 ${marketFilter}
-     GROUP BY order_date ORDER BY order_date`,
-    params
-  );
-
-  const convResult = await db.query(
-    `SELECT conversation_date::text as day, COUNT(*) as count
-     FROM conversations WHERE conversation_date >= $1 AND conversation_date <= $2 ${marketFilter}
-     GROUP BY conversation_date ORDER BY conversation_date`,
-    params
-  );
+  const [ordersResult, convResult] = await Promise.all([
+    db.query(
+      `SELECT order_date::text as day, COUNT(*) as count
+       FROM orders WHERE order_date >= $1 AND order_date <= $2 ${marketFilter}
+       GROUP BY order_date ORDER BY order_date`,
+      params
+    ),
+    db.query(
+      `SELECT conversation_date::text as day, COUNT(*) as count
+       FROM conversations WHERE conversation_date >= $1 AND conversation_date <= $2 ${marketFilter}
+       GROUP BY conversation_date ORDER BY conversation_date`,
+      params
+    ),
+  ]);
 
   // Merge into daily trend
   const ordersByDay = {};
@@ -94,24 +95,25 @@ async function getTrend(dateFrom, dateTo, marketTag) {
 
 // Per-store/market breakdown
 async function getStores(dateFrom, dateTo) {
-  const ordersResult = await db.query(
-    `SELECT market_tag, COUNT(*) as count
-     FROM orders WHERE order_date >= $1 AND order_date <= $2 AND market_tag IS NOT NULL
-     GROUP BY market_tag`,
-    [dateFrom, dateTo]
-  );
-
-  const convResult = await db.query(
-    `SELECT market_tag,
-       COUNT(*) as total,
-       COUNT(*) FILTER (WHERE status = 'closed' AND reopened = FALSE) as fcr_count,
-       AVG(exports_handling_duration) FILTER (WHERE exports_handling_duration > 0) as avg_aht,
-       AVG(CASE WHEN assigned_at > 0 AND created_at > 0 THEN (assigned_at - created_at) / 1000.0 END) as avg_ast
-     FROM conversations
-     WHERE conversation_date >= $1 AND conversation_date <= $2 AND market_tag IS NOT NULL
-     GROUP BY market_tag`,
-    [dateFrom, dateTo]
-  );
+  const [ordersResult, convResult] = await Promise.all([
+    db.query(
+      `SELECT market_tag, COUNT(*) as count
+       FROM orders WHERE order_date >= $1 AND order_date <= $2 AND market_tag IS NOT NULL
+       GROUP BY market_tag`,
+      [dateFrom, dateTo]
+    ),
+    db.query(
+      `SELECT market_tag,
+         COUNT(*) as total,
+         COUNT(*) FILTER (WHERE status = 'closed' AND reopened = FALSE) as fcr_count,
+         AVG(exports_handling_duration) FILTER (WHERE exports_handling_duration > 0) as avg_aht,
+         AVG(CASE WHEN assigned_at > 0 AND created_at > 0 THEN (assigned_at - created_at) / 1000.0 END) as avg_ast
+       FROM conversations
+       WHERE conversation_date >= $1 AND conversation_date <= $2 AND market_tag IS NOT NULL
+       GROUP BY market_tag`,
+      [dateFrom, dateTo]
+    ),
+  ]);
 
   const ordersByMarket = {};
   ordersResult.rows.forEach(r => { ordersByMarket[r.market_tag] = parseInt(r.count); });

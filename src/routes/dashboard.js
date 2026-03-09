@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const dashboardDB = require('../services/dashboard-db.service');
 const dbService = require('../services/db.service');
+const cache = require('../services/cache.service');
 
 // Fallback imports voor als DB niet beschikbaar is
 const shopifyService = require('../services/shopify.service');
@@ -18,6 +19,15 @@ async function useDB() {
   }
 }
 
+// Cache wrapper: check cache first, compute if miss
+async function cached(key, computeFn) {
+  const hit = cache.get(key);
+  if (hit) return hit;
+  const data = await computeFn();
+  cache.set(key, data);
+  return data;
+}
+
 // === SUMMARY ===
 router.get('/summary', async (req, res) => {
   try {
@@ -26,7 +36,8 @@ router.get('/summary', async (req, res) => {
 
     // Probeer DB eerst
     if (await useDB()) {
-      const data = await dashboardDB.getSummary(date_from, date_to, tag || null);
+      const cacheKey = `summary:${date_from}:${date_to}:${tag || 'all'}`;
+      const data = await cached(cacheKey, () => dashboardDB.getSummary(date_from, date_to, tag || null));
       return res.json({ success: true, data_source: 'database', data });
     }
 
@@ -71,7 +82,8 @@ router.get('/trend', async (req, res) => {
     if (!date_from || !date_to) return res.status(400).json({ error: 'Missing date_from and date_to' });
 
     if (await useDB()) {
-      const data = await dashboardDB.getTrend(date_from, date_to, tag || null);
+      const cacheKey = `trend:${date_from}:${date_to}:${tag || 'all'}`;
+      const data = await cached(cacheKey, () => dashboardDB.getTrend(date_from, date_to, tag || null));
       return res.json({ success: true, data_source: 'database', data });
     }
 
@@ -113,7 +125,8 @@ router.get('/stores', async (req, res) => {
     if (!date_from || !date_to) return res.status(400).json({ error: 'Missing date_from and date_to' });
 
     if (await useDB()) {
-      const data = await dashboardDB.getStores(date_from, date_to);
+      const cacheKey = `stores:${date_from}:${date_to}`;
+      const data = await cached(cacheKey, () => dashboardDB.getStores(date_from, date_to));
       return res.json({ success: true, data_source: 'database', data });
     }
 
@@ -129,7 +142,8 @@ router.get('/queues', async (req, res) => {
     if (!date_from || !date_to) return res.status(400).json({ error: 'Missing date_from and date_to' });
 
     if (await useDB()) {
-      const data = await dashboardDB.getQueues(date_from, date_to, tag || null);
+      const cacheKey = `queues:${date_from}:${date_to}:${tag || 'all'}`;
+      const data = await cached(cacheKey, () => dashboardDB.getQueues(date_from, date_to, tag || null));
       return res.json({ success: true, data_source: 'database', data });
     }
 
@@ -193,28 +207,61 @@ router.get('/backlog', async (req, res) => {
 // === C1 CATEGORIES ===
 router.get('/c1-categories', async (req, res) => {
   try {
-    const backlogService = require('../services/dixa-backlog.service');
-    const dateFrom = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    const dateTo = new Date().toISOString();
-    const conversations = await backlogService.getConversationsFromExports(new Date(dateFrom), new Date(dateTo));
-    if (!conversations || conversations.length === 0) return res.json({ success: true, data: { categories: [], summary: { total_tickets: 0, avg_fcr: 0, avg_aht_seconds: 0, avg_ast_seconds: 0 } } });
-    const result = c1CategoryService.calculateC1CategoryPerformance(conversations);
-    res.json({ success: true, data_source: 'live', data: result, period: { from: dateFrom.split('T')[0], to: dateTo.split('T')[0] } });
+    const cacheKey = 'c1-categories:7d';
+    const result = await cached(cacheKey, async () => {
+      const backlogService = require('../services/dixa-backlog.service');
+      const dateFrom = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      const dateTo = new Date().toISOString();
+      const conversations = await backlogService.getConversationsFromExports(new Date(dateFrom), new Date(dateTo));
+      if (!conversations || conversations.length === 0) return { data: { categories: [], summary: { total_tickets: 0, avg_fcr: 0, avg_aht_seconds: 0, avg_ast_seconds: 0 } }, period: null };
+      const data = c1CategoryService.calculateC1CategoryPerformance(conversations);
+      return { data, period: { from: dateFrom.split('T')[0], to: dateTo.split('T')[0] } };
+    });
+    res.json({ success: true, data_source: 'live', data: result.data, ...(result.period && { period: result.period }) });
   } catch (error) { res.status(500).json({ success: false, error: error.message, data_source: 'error' }); }
 });
 
 // === SLA PERFORMANCE ===
 router.get('/sla-performance', async (req, res) => {
   try {
-    const slaService = require('../services/sla-performance.service');
-    const backlogService = require('../services/dixa-backlog.service');
-    const dateFrom = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    const dateTo = new Date().toISOString();
-    const conversations = await backlogService.getConversationsFromExports(new Date(dateFrom), new Date(dateTo));
-    if (!conversations || conversations.length === 0) return res.json({ success: true, data: { policies: [], summary: { total_conversations: 0, avg_sla_compliance: 0 } } });
-    const result = slaService.calculateSLAPerformance(conversations);
-    res.json({ success: true, data_source: 'live', data: result, period: { from: dateFrom.split('T')[0], to: dateTo.split('T')[0] } });
+    const cacheKey = 'sla-performance:7d';
+    const result = await cached(cacheKey, async () => {
+      const slaService = require('../services/sla-performance.service');
+      const backlogService = require('../services/dixa-backlog.service');
+      const dateFrom = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      const dateTo = new Date().toISOString();
+      const conversations = await backlogService.getConversationsFromExports(new Date(dateFrom), new Date(dateTo));
+      if (!conversations || conversations.length === 0) return { data: { policies: [], summary: { total_conversations: 0, avg_sla_compliance: 0 } }, period: null };
+      const data = slaService.calculateSLAPerformance(conversations);
+      return { data, period: { from: dateFrom.split('T')[0], to: dateTo.split('T')[0] } };
+    });
+    res.json({ success: true, data_source: 'live', data: result.data, ...(result.period && { period: result.period }) });
   } catch (error) { res.status(500).json({ success: false, error: error.message, data_source: 'error' }); }
+});
+
+// === ALL (combined endpoint for fast dashboard loading) ===
+router.get('/all', async (req, res) => {
+  try {
+    const { tag, date_from, date_to } = req.query;
+    if (!date_from || !date_to) return res.status(400).json({ error: 'Missing date_from and date_to' });
+
+    const dbAvailable = await useDB();
+    if (!dbAvailable) return res.status(503).json({ error: 'Database not available' });
+
+    const tagKey = tag || 'all';
+    const [summary, trend, stores, queues] = await Promise.all([
+      cached(`summary:${date_from}:${date_to}:${tagKey}`, () => dashboardDB.getSummary(date_from, date_to, tag || null)),
+      cached(`trend:${date_from}:${date_to}:${tagKey}`, () => dashboardDB.getTrend(date_from, date_to, tag || null)),
+      cached(`stores:${date_from}:${date_to}`, () => dashboardDB.getStores(date_from, date_to)),
+      cached(`queues:${date_from}:${date_to}:${tagKey}`, () => dashboardDB.getQueues(date_from, date_to, tag || null)),
+    ]);
+
+    res.json({
+      success: true,
+      data_source: 'database',
+      data: { summary, trend, stores, queues },
+    });
+  } catch (error) { res.status(500).json({ error: error.message, data_source: 'error' }); }
 });
 
 module.exports = router;
