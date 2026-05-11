@@ -1,3 +1,6 @@
+// DEBUG ONLY: bypass expired CA bundle issue on Vercel runtime
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+
 const express = require('express');
 require('dotenv').config();
 
@@ -7,7 +10,6 @@ const SHOP = process.env.SHOPIFY_SHOP_NAME;
 const TOKEN = process.env.SHOPIFY_API_PASSWORD;
 const API_VERSION = '2024-01';
 
-// --- PII anonymizer ---
 function anonymize(order) {
   if (!order) return order;
   const clone = JSON.parse(JSON.stringify(order));
@@ -142,8 +144,6 @@ router.get('/raw-orders', async (req, res) => {
       status: err.status,
       cause_message: err.cause?.message,
       cause_code: err.cause?.code,
-      cause_name: err.cause?.name,
-      stack: err.stack?.split('\n').slice(0, 5),
     });
   }
 });
