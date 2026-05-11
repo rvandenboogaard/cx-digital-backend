@@ -1,99 +1,142 @@
 const express = require('express');
 const axios = require('axios');
+require('dotenv').config();
+
 const router = express.Router();
 
-const config = {
-  accessToken: process.env.SHOPIFY_API_PASSWORD,
-  shopName: process.env.SHOPIFY_SHOP_NAME,
-};
+const SHOP = process.env.SHOPIFY_SHOP_NAME;
+const TOKEN = process.env.SHOPIFY_API_PASSWORD;
+const API_VERSION = '2024-01';
 
-const BASE_URL = `https://${config.shopName}/admin/api/2024-01`;
-
-// Anonimiseer PII maar behoud structuur
+// --- PII anonymizer ---
 function anonymize(order) {
-  if (!order) return null;
+  if (!order) return order;
+  const clone = JSON.parse(JSON.stringify(order));
+  const fakeAddr = {
+    first_name: 'Test', last_name: 'Klant', name: 'Test Klant',
+    address1: 'Teststraat 1', address2: null, company: null,
+    phone: '0612345678', city: clone.billing_address?.city || 'Rotterdam',
+    zip: clone.billing_address?.zip || '3000 AA',
+    province: null, province_code: null,
+    country: clone.billing_address?.country || 'Netherlands',
+    country_code: clone.billing_address?.country_code || 'NL',
+    latitude: null, longitude: null,
+  };
+  if (clone.email) clone.email = 'klant@example.com';
+  if (clone.contact_email) clone.contact_email = 'klant@example.com';
+  if (clone.phone) clone.phone = '0612345678';
+  if (clone.customer) {
+    clone.customer.first_name = 'Test';
+    clone.customer.last_name = 'Klant';
+    clone.customer.email = 'klant@example.com';
+    clone.customer.phone = '0612345678';
+    if (clone.customer.default_address) Object.assign(clone.customer.default_address, fakeAddr);
+  }
+  if (clone.billing_address) Object.assign(clone.billing_address, fakeAddr);
+  if (clone.shipping_address) Object.assign(clone.shipping_address, fakeAddr);
+  return clone;
+}
 
-  const fakeAddr = (addr) => addr ? {
-    ...addr,
-    first_name: 'Test',
-    last_name: 'Klant',
-    name: 'Test Klant',
-    address1: 'Teststraat 1',
-    address2: null,
-    phone: '0612345678',
-    company: addr.company ? 'Test BV' : null,
-  } : addr;
+// --- Channel detection signals ---
+function detectChannel(order) {
+  const tagsLower = (order.tags || '').toLowerCase();
+  const sourceName = (order.source_name || '').toLowerCase();
 
+  if (tagsLower.includes('bol be')) return 'bol_be';
+  if (tagsLower.includes('bol nl') || tagsLower.includes('bol')) return 'bol_nl';
+  if (tagsLower.includes('mediamarkt') || tagsLower.includes('media markt')) return 'mediamarkt';
+  if (tagsLower.includes('kaufland')) return 'kaufland';
+  if (tagsLower.includes('amazon')) return 'amazon';
+  if (sourceName === 'amazon' || sourceName.includes('amazon')) return 'amazon';
+  if (sourceName === 'web') return 'webshop';
+  if (order.app_id === 580111) return 'webshop';
+  if (sourceName && /^\d+$/.test(sourceName)) return 'unknown_marketplace';
+  return 'other';
+}
+
+function summarize(order) {
   return {
-    ...order,
-    email: 'klant@example.com',
-    contact_email: 'klant@example.com',
-    customer: order.customer ? {
-      ...order.customer,
-      first_name: 'Test',
-      last_name: 'Klant',
-      email: 'klant@example.com',
-      phone: '0612345678',
-      default_address: fakeAddr(order.customer.default_address),
-    } : null,
-    billing_address: fakeAddr(order.billing_address),
-    shipping_address: fakeAddr(order.shipping_address),
+    id: order.id,
+    name: order.name,
+    created_at: order.created_at,
+    source_name: order.source_name,
+    app_id: order.app_id,
+    tags: order.tags,
+    note_attributes: order.note_attributes,
+    detected_channel: detectChannel(order),
   };
 }
 
-async function fetchOrders(params) {
-  const res = await axios.get(`${BASE_URL}/orders.json`, {
-    params: { status: 'any', limit: 250, ...params },
-    headers: { 'X-Shopify-Access-Token': config.accessToken },
-    timeout: 20000,
+// --- Shopify pagination fetcher ---
+async function fetchOrdersPage(url) {
+  const res = await axios.get(url, {
+    headers: { 'X-Shopify-Access-Token': TOKEN, 'Content-Type': 'application/json' },
+    timeout: 25000,
   });
-  return res.data.orders || [];
+  const link = res.headers['link'] || '';
+  const nextMatch = link.match(/<([^>]+)>;\s*rel="next"/);
+  return { orders: res.data.orders || [], nextUrl: nextMatch ? nextMatch[1] : null };
 }
 
-function pickByTags(orders, predicate) {
-  return orders.find(o => predicate((o.tags || '').toLowerCase()));
-}
-
+// GET /api/debug/raw-orders?days=30&pages=5
 router.get('/raw-orders', async (req, res) => {
   try {
-    if (!config.accessToken || !config.shopName) {
-      return res.status(500).json({ error: 'Shopify credentials not configured' });
+    if (!SHOP || !TOKEN) {
+      return res.status(500).json({ error: 'SHOPIFY_SHOP_NAME or SHOPIFY_API_PASSWORD missing' });
+    }
+    const days = Math.min(parseInt(req.query.days, 10) || 60, 180);
+    const maxPages = Math.min(parseInt(req.query.pages, 10) || 8, 20);
+
+    const to = new Date();
+    const from = new Date(to.getTime() - days * 24 * 60 * 60 * 1000);
+
+    let url = `https://${SHOP}.myshopify.com/admin/api/${API_VERSION}/orders.json?status=any&limit=250&created_at_min=${from.toISOString()}&created_at_max=${to.toISOString()}`;
+
+    const wanted = ['webshop', 'bol_nl', 'bol_be', 'mediamarkt', 'kaufland', 'amazon'];
+    const samples = {};
+    const channelCounts = {};
+    const tagSet = new Set();
+    const sourceNameSet = new Set();
+    const appIdSet = new Set();
+    let totalScanned = 0;
+    let pagesFetched = 0;
+
+    while (url && pagesFetched < maxPages) {
+      const { orders, nextUrl } = await fetchOrdersPage(url);
+      pagesFetched++;
+      totalScanned += orders.length;
+
+      for (const o of orders) {
+        const ch = detectChannel(o);
+        channelCounts[ch] = (channelCounts[ch] || 0) + 1;
+        if (o.tags) o.tags.split(',').forEach((t) => tagSet.add(t.trim()));
+        if (o.source_name) sourceNameSet.add(o.source_name);
+        if (o.app_id) appIdSet.add(o.app_id);
+        if (wanted.includes(ch) && !samples[ch]) {
+          samples[ch] = anonymize(o);
+        }
+      }
+
+      // Stop early if we've got every wanted channel
+      if (wanted.every((w) => samples[w])) break;
+      url = nextUrl;
     }
 
-    // Window: laatste 30 dagen
-    const dateTo = new Date();
-    const dateFrom = new Date(dateTo.getTime() - 30 * 24 * 60 * 60 * 1000);
-
-    const orders = await fetchOrders({
-      created_at_min: dateFrom.toISOString(),
-      created_at_max: dateTo.toISOString(),
-    });
-
-    const webshopOrder = pickByTags(orders, t =>
-      !t.includes('bol') && !t.includes('mediamarkt') &&
-      !t.includes('amazon') && !t.includes('kaufland') && !t.includes('fnac')
-    );
-
-    const bolOrder = pickByTags(orders, t => t.includes('bol'));
-
-    const otherMarketplaceOrder = pickByTags(orders, t =>
-      t.includes('mediamarkt') || t.includes('amazon') ||
-      t.includes('kaufland') || t.includes('fnac')
-    );
-
-    // Verzamel alle unieke tags voor debug-overzicht
-    const allTags = new Set();
-    orders.forEach(o => (o.tags || '').split(',').map(t => t.trim()).filter(Boolean).forEach(t => allTags.add(t)));
+    // Add brief summaries of samples (besides full data)
+    const sampleSummaries = {};
+    for (const [k, v] of Object.entries(samples)) sampleSummaries[k] = summarize(v);
 
     res.json({
-      window: { from: dateFrom.toISOString(), to: dateTo.toISOString() },
-      total_scanned: orders.length,
-      unique_tags_seen: Array.from(allTags).sort(),
-      samples: {
-        webshop: anonymize(webshopOrder),
-        bol: anonymize(bolOrder),
-        other_marketplace: anonymize(otherMarketplaceOrder),
-      },
+      window: { from: from.toISOString(), to: to.toISOString(), days },
+      pages_fetched: pagesFetched,
+      total_scanned: totalScanned,
+      channel_counts: channelCounts,
+      unique_tags_seen: [...tagSet].sort(),
+      unique_source_names_seen: [...sourceNameSet].sort(),
+      unique_app_ids_seen: [...appIdSet].sort(),
+      missing_channels: wanted.filter((w) => !samples[w]),
+      sample_summaries: sampleSummaries,
+      samples, // full anonymized orders
     });
   } catch (err) {
     res.status(500).json({
