@@ -1,4 +1,5 @@
 const express = require('express');
+const { Agent, fetch: undiciFetch } = require('undici');
 require('dotenv').config();
 
 const router = express.Router();
@@ -6,6 +7,9 @@ const router = express.Router();
 const SHOP = process.env.SHOPIFY_SHOP_NAME;
 const TOKEN = process.env.SHOPIFY_API_PASSWORD;
 const API_VERSION = '2024-01';
+
+// Debug-only: skip TLS verification to bypass any cert chain issues on Vercel runtime
+const insecureAgent = new Agent({ connect: { rejectUnauthorized: false } });
 
 // --- PII anonymizer ---
 function anonymize(order) {
@@ -37,7 +41,6 @@ function anonymize(order) {
   return clone;
 }
 
-// --- Channel detection ---
 function detectChannel(order) {
   const tagsLower = (order.tags || '').toLowerCase();
   const sourceName = (order.source_name || '').toLowerCase();
@@ -62,15 +65,15 @@ function summarize(order) {
   };
 }
 
-// --- Native fetch (Node 18+) — bypasses old axios/CA cert chain issue ---
 async function fetchOrdersPage(url) {
-  const res = await fetch(url, {
+  const res = await undiciFetch(url, {
     method: 'GET',
     headers: {
       'X-Shopify-Access-Token': TOKEN,
       'Content-Type': 'application/json',
       'Accept': 'application/json',
     },
+    dispatcher: insecureAgent,
   });
   if (!res.ok) {
     const body = await res.text();
@@ -84,7 +87,6 @@ async function fetchOrdersPage(url) {
   return { orders: data.orders || [], nextUrl: nextMatch ? nextMatch[1] : null };
 }
 
-// GET /api/debug/raw-orders?days=60&pages=8
 router.get('/raw-orders', async (req, res) => {
   try {
     if (!SHOP || !TOKEN) {
@@ -140,7 +142,14 @@ router.get('/raw-orders', async (req, res) => {
       samples,
     });
   } catch (err) {
-    res.status(500).json({ error: err.message, status: err.status });
+    res.status(500).json({
+      error: err.message,
+      status: err.status,
+      cause_message: err.cause?.message,
+      cause_code: err.cause?.code,
+      cause_name: err.cause?.name,
+      stack: err.stack?.split('\n').slice(0, 5),
+    });
   }
 });
 
