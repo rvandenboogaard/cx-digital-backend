@@ -6,11 +6,16 @@ require('dotenv').config();
 
 const router = express.Router();
 
-const SHOP = process.env.SHOPIFY_SHOP_NAME;
+const RAW_SHOP = process.env.SHOPIFY_SHOP_NAME || '';
+// Normalize: strip protocol, trailing slash, and .myshopify.com suffix
+const SHOP = RAW_SHOP
+  .replace(/^https?:\/\//, '')
+  .replace(/\/+$/, '')
+  .replace(/\.myshopify\.com$/i, '');
+
 const TOKEN = process.env.SHOPIFY_API_PASSWORD;
 const API_VERSION = '2024-01';
 
-// --- PII anonymizer ---
 function anonymize(order) {
   if (!order) return order;
   const clone = JSON.parse(JSON.stringify(order));
@@ -80,8 +85,9 @@ async function fetchOrdersPage(url) {
   });
   if (!res.ok) {
     const body = await res.text();
-    const err = new Error(`Shopify ${res.status}: ${body.slice(0, 300)}`);
+    const err = new Error(`Shopify ${res.status} on ${url}: ${body.slice(0, 200)}`);
     err.status = res.status;
+    err.requestUrl = url;
     throw err;
   }
   const data = await res.json();
@@ -89,6 +95,18 @@ async function fetchOrdersPage(url) {
   const nextMatch = link.match(/<([^>]+)>;\s*rel="next"/);
   return { orders: data.orders || [], nextUrl: nextMatch ? nextMatch[1] : null };
 }
+
+// Diagnostic endpoint to verify env vars are correct (no secrets exposed)
+router.get('/env-check', (req, res) => {
+  res.json({
+    raw_shop_name: RAW_SHOP,
+    normalized_shop: SHOP,
+    constructed_host: `${SHOP}.myshopify.com`,
+    has_token: !!TOKEN,
+    token_prefix: TOKEN ? TOKEN.slice(0, 6) + '...' : null,
+    token_length: TOKEN ? TOKEN.length : 0,
+  });
+});
 
 router.get('/raw-orders', async (req, res) => {
   try {
@@ -133,6 +151,7 @@ router.get('/raw-orders', async (req, res) => {
     for (const [k, v] of Object.entries(samples)) sampleSummaries[k] = summarize(v);
 
     res.json({
+      shop_used: `${SHOP}.myshopify.com`,
       window: { from: from.toISOString(), to: to.toISOString(), days },
       pages_fetched: pagesFetched,
       total_scanned: totalScanned,
@@ -148,8 +167,8 @@ router.get('/raw-orders', async (req, res) => {
     res.status(500).json({
       error: err.message,
       status: err.status,
-      cause_message: err.cause?.message,
-      cause_code: err.cause?.code,
+      request_url: err.requestUrl,
+      shop_used: `${SHOP}.myshopify.com`,
     });
   }
 });
