@@ -9,18 +9,10 @@ const config = {
 
 const BASE_URL = `https://${config.shopName}/admin/api/2024-01`;
 
-// Simpele auth: zelfde key als de rest van de API
-function checkAuth(req, res) {
-  const key = req.headers['x-api-key'] || (req.headers.authorization || '').replace('Bearer ', '');
-  if (!process.env.API_KEY || key !== process.env.API_KEY) {
-    res.status(401).json({ error: 'Unauthorized' });
-    return false;
-  }
-  return true;
-}
-
 // Anonimiseer PII maar behoud structuur
 function anonymize(order) {
+  if (!order) return null;
+
   const fakeAddr = (addr) => addr ? {
     ...addr,
     first_name: 'Test',
@@ -51,30 +43,30 @@ function anonymize(order) {
 
 async function fetchOrders(params) {
   const res = await axios.get(`${BASE_URL}/orders.json`, {
-    params: { status: 'any', limit: 50, ...params },
+    params: { status: 'any', limit: 250, ...params },
     headers: { 'X-Shopify-Access-Token': config.accessToken },
     timeout: 20000,
   });
   return res.data.orders || [];
 }
 
-// Vind eerste order die matcht op tag-predicate
 function pickByTags(orders, predicate) {
   return orders.find(o => predicate((o.tags || '').toLowerCase()));
 }
 
 router.get('/raw-orders', async (req, res) => {
-  if (!checkAuth(req, res)) return;
-
   try {
-    // Pak ruime window: laatste 30 dagen
+    if (!config.accessToken || !config.shopName) {
+      return res.status(500).json({ error: 'Shopify credentials not configured' });
+    }
+
+    // Window: laatste 30 dagen
     const dateTo = new Date();
     const dateFrom = new Date(dateTo.getTime() - 30 * 24 * 60 * 60 * 1000);
 
     const orders = await fetchOrders({
       created_at_min: dateFrom.toISOString(),
       created_at_max: dateTo.toISOString(),
-      limit: 250,
     });
 
     const webshopOrder = pickByTags(orders, t =>
@@ -89,13 +81,18 @@ router.get('/raw-orders', async (req, res) => {
       t.includes('kaufland') || t.includes('fnac')
     );
 
+    // Verzamel alle unieke tags voor debug-overzicht
+    const allTags = new Set();
+    orders.forEach(o => (o.tags || '').split(',').map(t => t.trim()).filter(Boolean).forEach(t => allTags.add(t)));
+
     res.json({
       window: { from: dateFrom.toISOString(), to: dateTo.toISOString() },
       total_scanned: orders.length,
+      unique_tags_seen: Array.from(allTags).sort(),
       samples: {
-        webshop: webshopOrder ? anonymize(webshopOrder) : null,
-        bol: bolOrder ? anonymize(bolOrder) : null,
-        other_marketplace: otherMarketplaceOrder ? anonymize(otherMarketplaceOrder) : null,
+        webshop: anonymize(webshopOrder),
+        bol: anonymize(bolOrder),
+        other_marketplace: anonymize(otherMarketplaceOrder),
       },
     });
   } catch (err) {
