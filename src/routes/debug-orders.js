@@ -7,7 +7,6 @@ require('dotenv').config();
 const router = express.Router();
 
 const RAW_SHOP = process.env.SHOPIFY_SHOP_NAME || '';
-// Normalize: strip protocol, trailing slash, and .myshopify.com suffix
 const SHOP = RAW_SHOP
   .replace(/^https?:\/\//, '')
   .replace(/\/+$/, '')
@@ -15,7 +14,9 @@ const SHOP = RAW_SHOP
 
 const TOKEN = process.env.SHOPIFY_API_PASSWORD;
 const API_VERSION = '2024-01';
+const GRAPHQL_VERSION = '2024-10';
 
+// --- PII anonymizer ---
 function anonymize(order) {
   if (!order) return order;
   const clone = JSON.parse(JSON.stringify(order));
@@ -96,7 +97,8 @@ async function fetchOrdersPage(url) {
   return { orders: data.orders || [], nextUrl: nextMatch ? nextMatch[1] : null };
 }
 
-// Diagnostic endpoint to verify env vars are correct (no secrets exposed)
+// --- Diagnose endpoints ---
+
 router.get('/env-check', (req, res) => {
   res.json({
     raw_shop_name: RAW_SHOP,
@@ -169,6 +171,67 @@ router.get('/raw-orders', async (req, res) => {
       status: err.status,
       request_url: err.requestUrl,
       shop_used: `${SHOP}.myshopify.com`,
+    });
+  }
+});
+
+// Search Shopify by tag across the entire order history (no date limit)
+router.get('/search-tags', async (req, res) => {
+  try {
+    if (!SHOP || !TOKEN) {
+      return res.status(500).json({ error: 'SHOPIFY_SHOP_NAME or SHOPIFY_API_PASSWORD missing' });
+    }
+    const tagsToCheck = ['amazon', 'mediamarkt', 'media markt', 'idealo', 'kaufland', 'bol nl', 'bol be'];
+    const results = {};
+
+    for (const tag of tagsToCheck) {
+      const query = `
+        query($q: String!) {
+          orders(first: 5, query: $q, sortKey: CREATED_AT, reverse: true) {
+            edges {
+              node {
+                id
+                name
+                createdAt
+                tags
+                sourceName
+                app { id name }
+              }
+            }
+          }
+          ordersCount(query: $q) { count }
+        }
+      `;
+      const r = await fetch(`https://${SHOP}.myshopify.com/admin/api/${GRAPHQL_VERSION}/graphql.json`, {
+        method: 'POST',
+        headers: {
+          'X-Shopify-Access-Token': TOKEN,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'User-Agent': 'CX-Digital-Backend/1.0',
+        },
+        body: JSON.stringify({ query, variables: { q: `tag:"${tag}"` } }),
+      });
+      const json = await r.json();
+      results[tag] = {
+        http_status: r.status,
+        total_count: json.data?.ordersCount?.count ?? null,
+        sample: (json.data?.orders?.edges || []).map((e) => ({
+          name: e.node.name,
+          created: e.node.createdAt,
+          tags: e.node.tags,
+          source: e.node.sourceName,
+          app: e.node.app?.name,
+        })),
+        errors: json.errors || null,
+      };
+    }
+
+    res.json({ shop: `${SHOP}.myshopify.com`, results });
+  } catch (err) {
+    res.status(500).json({
+      error: err.message,
+      stack: err.stack?.split('\n').slice(0, 5),
     });
   }
 });
