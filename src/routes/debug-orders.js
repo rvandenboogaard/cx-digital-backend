@@ -10,6 +10,7 @@ const SHOP = process.env.SHOPIFY_SHOP_NAME;
 const TOKEN = process.env.SHOPIFY_API_PASSWORD;
 const API_VERSION = '2024-01';
 
+// --- PII anonymizer ---
 function anonymize(order) {
   if (!order) return order;
   const clone = JSON.parse(JSON.stringify(order));
@@ -56,9 +57,13 @@ function detectChannel(order) {
 
 function summarize(order) {
   return {
-    id: order.id, name: order.name, created_at: order.created_at,
-    source_name: order.source_name, app_id: order.app_id,
-    tags: order.tags, note_attributes: order.note_attributes,
+    id: order.id,
+    name: order.name,
+    created_at: order.created_at,
+    source_name: order.source_name,
+    app_id: order.app_id,
+    tags: order.tags,
+    note_attributes: order.note_attributes,
     detected_channel: detectChannel(order),
   };
 }
@@ -70,6 +75,7 @@ async function fetchOrdersPage(url) {
       'X-Shopify-Access-Token': TOKEN,
       'Content-Type': 'application/json',
       'Accept': 'application/json',
+      'User-Agent': 'CX-Digital-Backend/1.0',
     },
   });
   if (!res.ok) {
