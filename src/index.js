@@ -1,5 +1,6 @@
 // CX Digital Backend - OTC Dashboard
 // Force Vercel rebuild: 2026-03-02 11:30 UTC
+
 const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
@@ -25,6 +26,7 @@ const webhooksRoutes = require('./routes/webhooks');
 const backlogRoutes = require('./routes/backlog');
 const storeComparisonRoutes = require('./routes/store-comparison');
 const syncRoutes = require('./routes/sync');
+const debugOrdersRoutes = require('./routes/debug-orders');
 
 const dbService = require('./services/db.service');
 
@@ -51,6 +53,8 @@ app.use('/api/store-comparison', storeComparisonRoutes);
 console.log('  ✓ /api/store-comparison (MULTI-STORE METRICS)');
 app.use('/api/sync', syncRoutes);
 console.log('  ✓ /api/sync (DB SYNC + CRON)');
+app.use('/api/debug', debugOrdersRoutes);
+console.log('  ✓ /api/debug (RAW SHOPIFY SAMPLES)');
 console.log('All routes registered!\n');
 
 // Start server
