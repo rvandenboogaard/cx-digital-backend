@@ -1,5 +1,4 @@
 const express = require('express');
-const { Agent, fetch: undiciFetch } = require('undici');
 require('dotenv').config();
 
 const router = express.Router();
@@ -7,9 +6,6 @@ const router = express.Router();
 const SHOP = process.env.SHOPIFY_SHOP_NAME;
 const TOKEN = process.env.SHOPIFY_API_PASSWORD;
 const API_VERSION = '2024-01';
-
-// Debug-only: skip TLS verification to bypass any cert chain issues on Vercel runtime
-const insecureAgent = new Agent({ connect: { rejectUnauthorized: false } });
 
 // --- PII anonymizer ---
 function anonymize(order) {
@@ -66,14 +62,13 @@ function summarize(order) {
 }
 
 async function fetchOrdersPage(url) {
-  const res = await undiciFetch(url, {
+  const res = await fetch(url, {
     method: 'GET',
     headers: {
       'X-Shopify-Access-Token': TOKEN,
       'Content-Type': 'application/json',
       'Accept': 'application/json',
     },
-    dispatcher: insecureAgent,
   });
   if (!res.ok) {
     const body = await res.text();
@@ -93,7 +88,7 @@ router.get('/raw-orders', async (req, res) => {
       return res.status(500).json({ error: 'SHOPIFY_SHOP_NAME or SHOPIFY_API_PASSWORD missing' });
     }
     const days = Math.min(parseInt(req.query.days, 10) || 60, 180);
-    const maxPages = Math.min(parseInt(req.query.pages, 10) || 8, 20);
+    const maxPages = Math.min(parseInt(req.query.pages, 10) || 5, 10);
 
     const to = new Date();
     const from = new Date(to.getTime() - days * 24 * 60 * 60 * 1000);
