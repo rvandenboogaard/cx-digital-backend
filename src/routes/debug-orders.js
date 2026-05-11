@@ -1,5 +1,4 @@
 const express = require('express');
-const axios = require('axios');
 require('dotenv').config();
 
 const router = express.Router();
@@ -15,7 +14,8 @@ function anonymize(order) {
   const fakeAddr = {
     first_name: 'Test', last_name: 'Klant', name: 'Test Klant',
     address1: 'Teststraat 1', address2: null, company: null,
-    phone: '0612345678', city: clone.billing_address?.city || 'Rotterdam',
+    phone: '0612345678',
+    city: clone.billing_address?.city || 'Rotterdam',
     zip: clone.billing_address?.zip || '3000 AA',
     province: null, province_code: null,
     country: clone.billing_address?.country || 'Netherlands',
@@ -37,11 +37,10 @@ function anonymize(order) {
   return clone;
 }
 
-// --- Channel detection signals ---
+// --- Channel detection ---
 function detectChannel(order) {
   const tagsLower = (order.tags || '').toLowerCase();
   const sourceName = (order.source_name || '').toLowerCase();
-
   if (tagsLower.includes('bol be')) return 'bol_be';
   if (tagsLower.includes('bol nl') || tagsLower.includes('bol')) return 'bol_nl';
   if (tagsLower.includes('mediamarkt') || tagsLower.includes('media markt')) return 'mediamarkt';
@@ -56,29 +55,36 @@ function detectChannel(order) {
 
 function summarize(order) {
   return {
-    id: order.id,
-    name: order.name,
-    created_at: order.created_at,
-    source_name: order.source_name,
-    app_id: order.app_id,
-    tags: order.tags,
-    note_attributes: order.note_attributes,
+    id: order.id, name: order.name, created_at: order.created_at,
+    source_name: order.source_name, app_id: order.app_id,
+    tags: order.tags, note_attributes: order.note_attributes,
     detected_channel: detectChannel(order),
   };
 }
 
-// --- Shopify pagination fetcher ---
+// --- Native fetch (Node 18+) — bypasses old axios/CA cert chain issue ---
 async function fetchOrdersPage(url) {
-  const res = await axios.get(url, {
-    headers: { 'X-Shopify-Access-Token': TOKEN, 'Content-Type': 'application/json' },
-    timeout: 25000,
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: {
+      'X-Shopify-Access-Token': TOKEN,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    },
   });
-  const link = res.headers['link'] || '';
+  if (!res.ok) {
+    const body = await res.text();
+    const err = new Error(`Shopify ${res.status}: ${body.slice(0, 300)}`);
+    err.status = res.status;
+    throw err;
+  }
+  const data = await res.json();
+  const link = res.headers.get('link') || '';
   const nextMatch = link.match(/<([^>]+)>;\s*rel="next"/);
-  return { orders: res.data.orders || [], nextUrl: nextMatch ? nextMatch[1] : null };
+  return { orders: data.orders || [], nextUrl: nextMatch ? nextMatch[1] : null };
 }
 
-// GET /api/debug/raw-orders?days=30&pages=5
+// GET /api/debug/raw-orders?days=60&pages=8
 router.get('/raw-orders', async (req, res) => {
   try {
     if (!SHOP || !TOKEN) {
@@ -112,17 +118,12 @@ router.get('/raw-orders', async (req, res) => {
         if (o.tags) o.tags.split(',').forEach((t) => tagSet.add(t.trim()));
         if (o.source_name) sourceNameSet.add(o.source_name);
         if (o.app_id) appIdSet.add(o.app_id);
-        if (wanted.includes(ch) && !samples[ch]) {
-          samples[ch] = anonymize(o);
-        }
+        if (wanted.includes(ch) && !samples[ch]) samples[ch] = anonymize(o);
       }
-
-      // Stop early if we've got every wanted channel
       if (wanted.every((w) => samples[w])) break;
       url = nextUrl;
     }
 
-    // Add brief summaries of samples (besides full data)
     const sampleSummaries = {};
     for (const [k, v] of Object.entries(samples)) sampleSummaries[k] = summarize(v);
 
@@ -136,14 +137,10 @@ router.get('/raw-orders', async (req, res) => {
       unique_app_ids_seen: [...appIdSet].sort(),
       missing_channels: wanted.filter((w) => !samples[w]),
       sample_summaries: sampleSummaries,
-      samples, // full anonymized orders
+      samples,
     });
   } catch (err) {
-    res.status(500).json({
-      error: err.message,
-      shopify_status: err.response?.status,
-      shopify_body: err.response?.data,
-    });
+    res.status(500).json({ error: err.message, status: err.status });
   }
 });
 
