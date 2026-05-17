@@ -85,6 +85,7 @@ async function getOrdersViaREST(filters = {}) {
       const market = isXoXo ? 'XoXo' : countryMapper.mapCountryToMarket(countryCode);
       return {
         shopify_order_id: order.id,
+        order_name: order.name,
         order_date: order.created_at,
         order_day: order.created_at.substring(0, 10),
         order_hour: truncateToHour(order.created_at),
