@@ -3,3 +3,7 @@ node_modules/
 .DS_Store
 logs/
 *.log
+.vercel
+.env*.local
+src/services/dixa.service.js.backup-pre-enrichment
+
